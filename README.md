@@ -15,10 +15,17 @@ InterVue AI is an adaptive, real-time voice interview platform. It goes beyond a
 ## Architecture
 
 1. **Frontend**: Next.js App Router, Tailwind CSS, shadcn/ui.
-2. **Backend**: Next.js Serverless API Routes.
-3. **Voice**: AssemblyAI Voice Agent API integration (using short-lived tokens generated on the backend).
-4. **LLM Engine**: Google Gemini LLM SDK processing adaptive reasoning.
-5. **Database**: Supabase (PostgreSQL) for state management and reports.
+2. **Backend**: Next.js Serverless API Routes (`app/api/`), Node runtime.
+3. **Voice**: AssemblyAI Universal Streaming v3 WebSocket with short-lived tokens generated server-side (the permanent key never reaches the browser). Text input is a first-class fallback.
+4. **LLM Engine**: Google Gemini (`@google/genai`) with separate prompt modules — planner, evaluator, reporter, document analyzer, practice planner. All outputs are structured JSON, validated and clamped server-side.
+5. **Adaptive engine** (`lib/interview/engine.ts`): per-answer evaluation (relevance / correctness / completeness / depth / reasoning / communication), competency tracking, difficulty adaptation, follow-up vs. new-competency decisions, and evidence-based final reports with domain-derived score categories.
+6. **Persistence**: Supabase (PostgreSQL) when configured; durable local JSON store under `.data/` otherwise. Interviews survive refreshes and restarts.
+7. **Documents**: resume/JD upload with real parsing (`unpdf`, `mammoth`) + LLM extraction — never invents candidate experience.
+
+## Real mode vs Demo mode
+
+- **REAL MODE** activates automatically when `LLM_API_KEY` (Gemini) and `ASSEMBLYAI_API_KEY` are set. All evaluation, adaptation, and reporting then come from the LLM against real domain knowledge.
+- **DEMO MODE** (no LLM key) keeps the full interview loop working with deterministic heuristic evaluation, clearly labeled in the UI. It exists only for UI development — never as a substitute for the real path.
 
 ## Local Setup
 
@@ -41,7 +48,15 @@ InterVue AI is an adaptive, real-time voice interview platform. It goes beyond a
    ```
 
 4. **Open in Browser**
-   Navigate to `http://localhost:3000`
+   Navigate to `http://localhost:3000`.
+   - With `LLM_API_KEY` set → REAL MODE (LLM-driven evaluation and adaptation).
+   - Without it → DEMO MODE (heuristic scoring, clearly labeled).
+
+5. **End-to-end smoke test**
+   ```bash
+   node scripts/e2e-test.mjs
+   ```
+   Runs the full API loop (plan → turns → challenge → end → report → practice) across multiple domains.
 
 ## Demo Flow (Hackathon)
 

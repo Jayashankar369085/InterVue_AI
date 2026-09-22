@@ -1,0 +1,115 @@
+
+=== TEST 1: ML Engineer ===
+  plan OK id=85bdf3b4-70a1-4ad5-bd25-15a6248f2af5 mode=real
+  role: Machine Learning Engineer
+  domain: Automotive Engineering | seniority: Entry | difficulty: Medium
+  competencies: Computer Vision for ADAS(0.30), Model Optimization and Deployment(0.25), Sensor Fusion Fundamentals(0.15), Python/C++ Performance Optimization(0.10), Ethical AI and Safety Standards(0.10), Cross-functional Collaboration(0.10)
+  opening: Welcome to the team; I'm excited to discuss how your machine learning background can help us advance
+  turn 1: eval overall=4/10 action=PROBE_WEAKNESS
+    next Q: That's a textbook definition of overfitting, but we need to shift focus to the deployment side. That's a corre
+  turn 2: eval overall=4/10 action=PROBE_WEAKNESS
+    next Q: I appreciate the focus on training stability, but we really need to get this running on the car's actual hardw
+  turn 3: eval overall=1/10 action=PROBE_WEAKNESS
+    next Q: That's perfectly fair; everyone starts somewhere. If you had a massive model that was just too bulky to fit in
+  (not auto-ended; requesting report to finish)
+  REPORT: overall=30/100 headline="Strong grasp of training fundamentals; significant gaps in deployment and hardware optimization"
+  categories: Computer Vision for ADAS=30, Model Optimization and Deployment=0, Sensor Fusion Fundamentals=0, Python/C++ Performance Optimization=0, Ethical AI and Safety Standards=0, Cross-functional Collaboration=0
+  strengths: Precise and accurate definition of overfitting | Strong foundational knowledge of training-side regularization techniques like L2, dropout, and early stopping
+  weaknesses: Inability to contextualize machine learning concepts to real-world hardware constraints | Difficulty pivoting from training-centric answers to inference-centric solutions
+  practice Qs: 3, comms: 60 wpm
+  PRACTICE interview created: id=be0968b1-52cf-4eae-8462-f3aac79bc656 role="Machine Learning Engineer — Automotive Engineering — targeted practice"
+  practice competencies: Model Optimization and Deployment(0.50), Computer Vision for ADAS(0.30), Python/C++ Performance Optimization(0.20)
+
+=== TEST 2: Mechanical Design Engineer ===
+  plan OK id=b8cee5a5-7882-49f3-91ad-61214537cae4 mode=real
+  role: Mechanical Design Engineer Intern
+  domain: Mechanical Engineering | seniority: Student/Fresher | difficulty: Easy
+  competencies: CAD Proficiency and Geometric Dimensioning(0.25), Mechanical Design Fundamentals(0.25), Material Selection and Manufacturing Processes(0.20), Problem Solving and Logical Reasoning(0.15), Communication and Team Collaboration(0.15)
+  opening: Welcome to your mechanical design engineering internship interview; I'm looking forward to discussin
+  turn 1: eval overall=8/10 action=ASK_FOLLOW_UP
+    next Q: That's a solid start. Since you mentioned that parts need to fit together, can you walk me through the differe
+  turn 2: eval overall=4/10 action=PROBE_WEAKNESS
+    next Q: That's a fair point on material selection, but let's stick to the drawing side for a moment. I noticed you piv
+  (not auto-ended; requesting report to finish)
+  REPORT: overall=60/100 headline="Solid grasp of engineering fundamentals, but requires better focus on specific technical prompts."
+  categories: CAD Proficiency and Geometric Dimensioning=50, Mechanical Design Fundamentals=80, Material Selection and Manufacturing Processes=80, Problem Solving and Logical Reasoning=60, Communication and Team Collaboration=75
+  strengths: Clear understanding of the functional purpose of GD&T in manufacturing. | Strong grasp of material selection trade-offs (weight vs. stiffness).
+  weaknesses: Tendency to pivot to general knowledge when specific technical details are requested. | Lack of depth in distinguishing between specific GD&T control types.
+  practice Qs: 3, comms: 77 wpm
+  PRACTICE interview created: id=9b599776-1c03-4aaa-8b1d-d78cb696153a role="Mechanical Design Engineer Intern — targeted practice"
+  practice competencies: CAD Proficiency and Geometric Dimensioning(0.50), Problem Solving and Logical Reasoning(0.30), Mechanical Design Fundamentals(0.20)
+
+=== TEST 3: Investment Banking Analyst ===
+  plan OK id=5d175dfd-95cf-47e9-aac1-52201744c31d mode=real
+  role: Investment Banking Analyst
+  domain: Finance | seniority: Fresher | difficulty: Hard
+  competencies: Financial Statement Analysis(0.35), Valuation Methodologies(0.25), Market Acumen and Deal Intuition(0.15), Quantitative Accuracy(0.10), Resilience and Attention to Detail(0.15)
+  opening: Welcome to your investment banking analyst screening; I'm looking for both technical precision and t
+  turn 1: eval overall=6/10 action=PROBE_WEAKNESS
+    next Q: That's a technically sound explanation of bond duration, but I asked about evaluating a merger target. If we p
+  turn 2: eval overall=5/10 action=PROBE_WEAKNESS
+    next Q: That's a textbook definition of EV, but we've drifted away from the M&A mechanics I asked about. I appreciate 
+  turn 3: eval overall=3/10 action=PROBE_WEAKNESS
+    next Q: That's a textbook DCF, but you're still not answering the core question about EPS. You've given me a textbook 
+  (not auto-ended; requesting report to finish)
+  REPORT: overall=47/100 headline="Strong technical knowledge of individual concepts; significant struggle with question relevance and M&A application."
+  categories: Financial Statement Analysis=45, Valuation Methodologies=50, Market Acumen and Deal Intuition=40, Quantitative Accuracy=50, Resilience and Attention to Detail=45
+  strengths: Strong command of foundational technical definitions (DCF, EV/EBITDA, bond duration). | Clear, steady speaking pace without filler words.
+  weaknesses: Poor listening comprehension; consistently failed to answer the specific questions posed. | Difficulty pivoting from memorized technical concepts to application-based M&A scenarios.
+  practice Qs: 3, comms: 77 wpm
+  PRACTICE interview created: id=62848cc8-482b-4624-890e-b286bd3d9e48 role="Investment Banking Analyst — targeted practice"
+  practice competencies: Financial Statement Analysis(0.40), Market Acumen and Deal Intuition(0.40), Quantitative Accuracy(0.20)
+
+=== TEST 4: Ancient Roman Architecture (unusual domain) ===
+  plan OK id=0d003b1f-9893-4beb-803c-1660b28451a0 mode=real
+  role: Roman Architecture Specialist
+  domain: Ancient History / Archaeology | seniority: Fresher | difficulty: Hard
+  competencies: Structural Engineering Principles of Opus Caementicium(0.35), Historical Context and Chronological Development(0.20), Architectural Order and Aesthetic Theory(0.15), Urban Planning and Civic Functionality(0.15), Communication of Historical Analysis(0.15)
+  opening: Welcome; I am looking forward to testing your depth regarding the technical innovations and aestheti
+  turn 1: eval overall=7/10 action=ASK_FOLLOW_UP
+    next Q: That is a solid start on the mechanical shift. That is a solid start on the mechanical shift, but walk me thro
+  turn 2: eval overall=9/10 action=INCREASE_DIFFICULTY
+    next Q: Precisely. The management of mass distribution was clearly the key to that dome's stability. Excellent observa
+  turn 3: eval overall=2/10 action=PROBE_WEAKNESS
+    next Q: That's perfectly fine; we don't need to focus on that specific structure. No worries, let's step back from spe
+  (not auto-ended; requesting report to finish)
+  REPORT: overall=65/100 headline="Strong grasp of structural mechanics, but requires deeper technical knowledge of material chemistry."
+  categories: Structural Engineering Principles of Opus Caementicium=60, Historical Context and Chronological Development=70, Architectural Order and Aesthetic Theory=70, Urban Planning and Civic Functionality=70, Communication of Historical Analysis=75
+  strengths: Precise identification of material density gradients in the Pantheon dome. | Correct understanding of structural weight-reduction techniques like coffers and stepped compression rings.
+  weaknesses: Limited knowledge of the chemical properties of pozzolanic concrete. | Difficulty connecting material composition to specific construction timelines and techniques.
+  practice Qs: 3, comms: 58 wpm
+  PRACTICE interview created: id=96c01396-ca25-4375-815f-9269ac0b643c role="Roman Architecture Specialist — targeted practice"
+  practice competencies: Structural Engineering Principles of Opus Caementicium(0.75), Historical Context and Chronological Development(0.25)
+
+=== CHALLENGE TEST ===
+  turn1 action=ASK_FOLLOW_UP
+  challenge turn: action=PROBE_WEAKNESS difficulty_delta=0
+  challenge Q: It looks like my question caught you off guard. I think there might have been a slight misunderstanding; I'm curious about your pe
+
+=== OFF-TOPIC TEST ===
+  relevance=0/10 action=PROBE_WEAKNESS
+  redirect: That was... certainly unexpected. I'm looking for a professional assessment of technical challenges, so let's reset. Can
+
+ALL TESTS PASSED in 404.8s
+[
+  {
+    "planId": "85bdf3b4-70a1-4ad5-bd25-15a6248f2af5",
+    "practiceId": "be0968b1-52cf-4eae-8462-f3aac79bc656",
+    "score": 30
+  },
+  {
+    "planId": "b8cee5a5-7882-49f3-91ad-61214537cae4",
+    "practiceId": "9b599776-1c03-4aaa-8b1d-d78cb696153a",
+    "score": 60
+  },
+  {
+    "planId": "5d175dfd-95cf-47e9-aac1-52201744c31d",
+    "practiceId": "62848cc8-482b-4624-890e-b286bd3d9e48",
+    "score": 47
+  },
+  {
+    "planId": "0d003b1f-9893-4beb-803c-1660b28451a0",
+    "practiceId": "96c01396-ca25-4375-815f-9269ac0b643c",
+    "score": 65
+  }
+]

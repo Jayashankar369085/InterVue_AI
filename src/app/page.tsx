@@ -1,103 +1,116 @@
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Mic, ArrowRight, Sparkles, Brain, Target, MessageSquare } from "lucide-react";
+import { SiteNav } from "@/components/site-nav";
+import {
+  Mic, ArrowRight, Brain, Target, MessageSquare, Sparkles, Play,
+} from "lucide-react";
+
+const quickStarts = [
+  "ML Engineer",
+  "Mechanical Design Engineer",
+  "Investment Banking Analyst",
+  "History Professor",
+  "Cybersecurity Analyst",
+];
 
 export default function LandingPage() {
   return (
-    <main className="flex-1 flex flex-col">
-      {/* Navbar */}
-      <header className="border-b border-white/5 bg-background/50 backdrop-blur-md sticky top-0 z-50">
-        <div className="container max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-primary" />
-            <span className="text-xl font-bold tracking-tight">INTERVUE AI</span>
-          </div>
-          <nav className="hidden md:flex gap-6">
-            <Link href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Features</Link>
-            <Link href="#how-it-works" className="text-sm text-muted-foreground hover:text-foreground transition-colors">How it works</Link>
-          </nav>
-          <div className="flex items-center gap-4">
-            <Link href="/history">
-              <Button variant="ghost" className="text-sm">History</Button>
-            </Link>
-            <Link href="/setup">
-              <Button size="sm">Start Interview</Button>
-            </Link>
-          </div>
-        </div>
-      </header>
+    <div className="relative min-h-dvh">
+      <div aria-hidden className="pointer-events-none fixed inset-0 bg-aurora" />
+      <SiteNav />
 
-      {/* Hero Section */}
-      <section className="flex-1 flex flex-col items-center justify-center text-center px-4 py-24 md:py-32 relative overflow-hidden">
-        {/* Abstract background gradient */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary/20 blur-[120px] rounded-full pointer-events-none -z-10" />
-        
-        <div className="max-w-4xl mx-auto space-y-8 relative z-10">
-          <div className="space-y-4">
-            <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
-              Your AI interviewer <br className="hidden md:block" /> for any role.
-            </h1>
-            <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Practice realistic interviews that adapt to what you actually say — not a fixed list of questions.
-            </p>
+      <main className="relative flex-1">
+        {/* Hero */}
+        <section className="mx-auto flex max-w-4xl flex-col items-center px-4 pb-20 pt-16 text-center sm:px-6 sm:pt-24">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand-soft px-3.5 py-1.5 text-xs font-semibold text-brand animate-fade-up">
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            Any domain · Real conversation · Real feedback
+          </span>
+          <h1 className="mt-6 text-balance text-4xl font-bold leading-[1.05] tracking-tight text-foreground animate-fade-up sm:text-6xl md:text-7xl" style={{ animationDelay: "60ms" }}>
+            Your AI interviewer
+            <br />
+            <span className="text-gradient">for any role.</span>
+          </h1>
+          <p className="mt-5 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground animate-fade-up sm:text-lg" style={{ animationDelay: "120ms" }}>
+            Practice realistic interviews that adapt to what you actually say — not a fixed list of questions. Voice-first, domain-aware, brutally honest feedback.
+          </p>
+
+          {/* CTA */}
+          <div className="mt-9 flex w-full max-w-md flex-col gap-3 animate-fade-up sm:flex-row sm:justify-center" style={{ animationDelay: "180ms" }}>
+            <Link
+              href="/setup"
+              className="group inline-flex items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-brand to-brand-2 px-7 py-4 text-base font-semibold text-on-accent shadow-glow-brand transition-all duration-300 hover:shadow-glow-strong hover:brightness-110 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              <Mic className="h-5 w-5 transition-transform group-hover:scale-110" aria-hidden />
+              Start practicing
+              <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" aria-hidden />
+            </Link>
+            <Link
+              href="/history"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-line bg-surface-2 px-7 py-4 text-base font-medium text-foreground transition-all duration-300 hover:border-line-strong hover:bg-surface-3 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              <Play className="h-4 w-4 text-brand" aria-hidden />
+              View past sessions
+            </Link>
           </div>
 
-          {/* Quick Start Input */}
-          <form action="/setup" className="max-w-xl mx-auto bg-card/50 backdrop-blur-sm border border-white/10 p-2 rounded-2xl flex flex-col md:flex-row gap-2 shadow-2xl">
-            <div className="relative flex-1">
-              <Input 
-                name="q"
-                placeholder="I'm preparing for an ML Engineer internship..." 
-                className="w-full h-12 bg-transparent border-none focus-visible:ring-0 text-base placeholder:text-muted-foreground/70"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button type="button" variant="secondary" size="icon" className="h-12 w-12 shrink-0 rounded-xl" title="Tell me instead">
-                <Mic className="w-5 h-5" />
-              </Button>
-              <Button type="submit" size="lg" className="h-12 rounded-xl shrink-0 px-6 font-semibold">
-                Start <ArrowRight className="ml-2 w-4 h-4" />
-              </Button>
-            </div>
-          </form>
-          
-          <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4 text-sm text-muted-foreground">
+          {/* Quick-start chips */}
+          <div className="mt-10 flex flex-col items-center gap-3 text-sm text-muted-foreground animate-fade-up" style={{ animationDelay: "240ms" }}>
             <p>Or try:</p>
-            <div className="flex gap-2">
-              <Link href="/setup?q=Software+Engineer" className="px-3 py-1 bg-white/5 rounded-full border border-white/10 cursor-pointer hover:bg-white/10 transition-colors">Software Engineer</Link>
-              <Link href="/setup?q=Product+Manager" className="px-3 py-1 bg-white/5 rounded-full border border-white/10 cursor-pointer hover:bg-white/10 transition-colors">Product Manager</Link>
+            <div className="flex flex-wrap justify-center gap-2">
+              {quickStarts.map((s) => (
+                <Link
+                  key={s}
+                  href={`/setup?q=${encodeURIComponent(s)}`}
+                  className="rounded-full border border-line bg-surface-2/80 px-3.5 py-1.5 text-[13px] font-medium text-foreground/80 transition-all duration-200 hover:border-brand/50 hover:bg-brand-soft hover:text-brand active:scale-95"
+                >
+                  {s}
+                </Link>
+              ))}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Value Props */}
-      <section id="features" className="py-24 bg-black/40 border-t border-white/5">
-        <div className="container max-w-6xl mx-auto px-4 grid md:grid-cols-3 gap-8">
-          <div className="space-y-4 bg-card/30 p-6 rounded-2xl border border-white/5">
-            <div className="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center text-primary">
-              <Brain className="w-6 h-6" />
-            </div>
-            <h3 className="text-xl font-semibold">Adaptive Questioning</h3>
-            <p className="text-muted-foreground">The AI listens to your answers and dynamically generates follow-ups to probe your depth of knowledge.</p>
+        {/* Value props */}
+        <section className="mx-auto max-w-6xl px-4 pb-24 sm:px-6">
+          <div className="grid gap-5 md:grid-cols-3">
+            {[
+              {
+                icon: Brain,
+                title: "Adaptive questioning",
+                body: "The AI listens to your answers and dynamically generates follow-ups to probe your depth of knowledge — strong answers earn harder questions.",
+              },
+              {
+                icon: Target,
+                title: "Any domain",
+                body: "From Machine Learning to Law to Investment Banking, InterVue builds a competency model for whatever you're preparing for.",
+              },
+              {
+                icon: MessageSquare,
+                title: "Voice first",
+                body: "Talk naturally, interrupt when you need to, and experience the pressure of a real conversation — with typed answers as a fallback.",
+              },
+            ].map((f, i) => (
+              <div
+                key={f.title}
+                className="group rounded-3xl border border-line bg-surface p-7 shadow-card transition-all duration-300 hover:-translate-y-1 hover:border-brand/40 hover:shadow-glow-brand animate-fade-up"
+                style={{ animationDelay: `${300 + i * 80}ms` }}
+              >
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand transition-transform duration-300 group-hover:scale-110">
+                  <f.icon className="h-5 w-5" aria-hidden />
+                </div>
+                <h3 className="mt-4 text-lg font-semibold tracking-tight text-foreground">{f.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
+              </div>
+            ))}
           </div>
-          <div className="space-y-4 bg-card/30 p-6 rounded-2xl border border-white/5">
-            <div className="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center text-primary">
-              <Target className="w-6 h-6" />
-            </div>
-            <h3 className="text-xl font-semibold">Any Domain</h3>
-            <p className="text-muted-foreground">From Machine Learning to Law to Investment Banking, InterVue understands the competencies required.</p>
-          </div>
-          <div className="space-y-4 bg-card/30 p-6 rounded-2xl border border-white/5">
-            <div className="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center text-primary">
-              <MessageSquare className="w-6 h-6" />
-            </div>
-            <h3 className="text-xl font-semibold">Voice First</h3>
-            <p className="text-muted-foreground">Talk naturally, interrupt when you need to, and experience the pressure of a real conversation.</p>
-          </div>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+
+      <footer className="relative border-t border-line/60 py-8">
+        <p className="text-center text-xs text-muted-foreground">
+          InterVerse AI · Built with AssemblyAI voice + Gemini intelligence
+        </p>
+      </footer>
+    </div>
   );
 }

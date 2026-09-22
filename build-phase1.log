@@ -1,0 +1,37 @@
+▲ Next.js 16.3.5 (Turbopack)
+- Environments: .env.local
+✓ Running next.config.ts took 53ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 1247ms
+  Running TypeScript ...
+  Finished TypeScript in 3.9s ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/11) ...
+  Generating static pages using 15 workers (2/11) 
+  Generating static pages using 15 workers (5/11) 
+  Generating static pages using 15 workers (8/11) 
+✓ Generating static pages using 15 workers (11/11) in 545ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /api/documents/parse
+├ ƒ /api/interviews/[id]
+├ ƒ /api/interviews/[id]/practice
+├ ƒ /api/interviews/[id]/report
+├ ƒ /api/interviews/[id]/turn
+├ ƒ /api/interviews/list
+├ ƒ /api/interviews/plan
+├ ƒ /api/voice/token
+├ ƒ /api/voice/transcribe
+├ ○ /history
+├ ƒ /interview/[id]
+├ ƒ /results/[id]
+└ ○ /setup
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
