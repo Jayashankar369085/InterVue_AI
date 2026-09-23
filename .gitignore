@@ -24,6 +24,12 @@
 .DS_Store
 *.pem
 
+# local dev data (dev-only file store; production uses DynamoDB)
+.data/
+
+# ad-hoc logs
+*.log
+
 # debug
 npm-debug.log*
 yarn-debug.log*

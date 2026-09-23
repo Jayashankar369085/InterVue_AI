@@ -19,7 +19,7 @@ InterVue AI is an adaptive, real-time voice interview platform. It goes beyond a
 3. **Voice**: AssemblyAI Universal Streaming v3 WebSocket with short-lived tokens generated server-side (the permanent key never reaches the browser). Text input is a first-class fallback.
 4. **LLM Engine**: Google Gemini (`@google/genai`) with separate prompt modules — planner, evaluator, reporter, document analyzer, practice planner. All outputs are structured JSON, validated and clamped server-side.
 5. **Adaptive engine** (`lib/interview/engine.ts`): per-answer evaluation (relevance / correctness / completeness / depth / reasoning / communication), competency tracking, difficulty adaptation, follow-up vs. new-competency decisions, and evidence-based final reports with domain-derived score categories.
-6. **Persistence**: Supabase (PostgreSQL) when configured; durable local JSON store under `.data/` otherwise. Interviews survive refreshes and restarts.
+6. **Persistence**: adapter-based — **AWS DynamoDB** in production (AWS Amplify; table from `INTERVIEWS_TABLE_NAME`, auth via the Amplify runtime IAM role, version-CAS for safe concurrent updates) and a local JSON file under `.data/` for development only. The dev file store refuses to run in production, so the read-only-filesystem (EROFS) failure class cannot recur.
 7. **Documents**: resume/JD upload with real parsing (`unpdf`, `mammoth`) + LLM extraction — never invents candidate experience.
 
 ## Real mode vs Demo mode
@@ -41,6 +41,7 @@ InterVue AI is an adaptive, real-time voice interview platform. It goes beyond a
    LLM_API_KEY=your_gemini_key_here
    NEXT_PUBLIC_DEMO_MODE=true
    ```
+   For local DynamoDB testing (optional), also set `INTERVIEWS_TABLE_NAME` and provide AWS credentials via your normal local chain (SSO/profile — never commit keys). Region is taken from `AWS_REGION`/`INTERVIEWS_AWS_REGION` (defaults to `eu-north-1`).
 
 3. **Run Development Server**
    ```bash
@@ -55,6 +56,12 @@ InterVue AI is an adaptive, real-time voice interview platform. It goes beyond a
 5. **End-to-end smoke test**
    ```bash
    node scripts/e2e-test.mjs
+   ```
+
+6. **DynamoDB persistence smoke test** (needs table + AWS creds)
+   ```bash
+   node scripts/dynamo-smoke.mjs
+   ```
    ```
    Runs the full API loop (plan → turns → challenge → end → report → practice) across multiple domains.
 
