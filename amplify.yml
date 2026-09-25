@@ -3,20 +3,25 @@ version: 1
 env:
   variables:
     INTERVIEWS_TABLE_NAME: InterVueInterviews
+    NEXT_PUBLIC_DEMO_MODE: "false"
 
 frontend:
   phases:
     preBuild:
       commands:
         - npm ci
+
     build:
       commands:
         - env | grep -e INTERVIEWS_TABLE_NAME >> .env.production
+        - env | grep -e NEXT_PUBLIC_DEMO_MODE >> .env.production
         - npm run build
+
   artifacts:
     baseDirectory: .next
     files:
       - '**/*'
+
   cache:
     paths:
       - node_modules/**/*
