@@ -1,4 +1,9 @@
 version: 1
+
+env:
+  variables:
+    INTERVIEWS_TABLE_NAME: InterVueInterviews
+
 frontend:
   phases:
     preBuild:
