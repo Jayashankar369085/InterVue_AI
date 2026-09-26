@@ -240,6 +240,21 @@ export default function ResultsPage() {
         <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
           <div className="flex flex-col items-center rounded-3xl border border-line bg-surface p-7 shadow-card animate-fade-up">
             <ScoreRing score={report.overall_score} />
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Answer quality</p>
+            {typeof report.questions_answered === "number" && typeof report.questions_total === "number" && (
+              <div className="mt-3 grid w-full grid-cols-2 gap-2 text-center">
+                <div className="rounded-xl border border-line bg-surface-2 px-2 py-2">
+                  <p className="text-sm font-semibold tabular-nums text-foreground">
+                    {report.questions_answered}/{report.questions_total}
+                  </p>
+                  <p className="text-[11px] leading-tight text-muted-foreground">questions answered</p>
+                </div>
+                <div className="rounded-xl border border-line bg-surface-2 px-2 py-2">
+                  <p className="text-sm font-semibold tabular-nums text-foreground">{report.completion_percent ?? "—"}%</p>
+                  <p className="text-[11px] leading-tight text-muted-foreground">completion</p>
+                </div>
+              </div>
+            )}
             <p className="mt-4 text-center text-sm font-medium leading-relaxed text-foreground">{report.headline}</p>
             <p className="mt-3 border-t border-line pt-3 text-center text-xs leading-relaxed text-muted-foreground">{report.summary}</p>
           </div>

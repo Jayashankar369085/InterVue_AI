@@ -179,6 +179,9 @@ export default function InterviewPage() {
           signal: ttsAbortRef.current.signal,
         });
         if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
+        // Voice actually used (primary or free-plan fallback) — observable in devtools.
+        const usedVoice = res.headers.get("X-Interviewer-Voice");
+        if (usedVoice && process.env.NODE_ENV !== "production") console.log(`[tts] interviewer voice: ${usedVoice}`);
         const blob = await res.blob();
         if (!ttsPlayingRef.current) return; // cancelled while fetching
         const url = URL.createObjectURL(blob);

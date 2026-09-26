@@ -86,6 +86,28 @@ export function clampDifficulty(d: number): number {
   return Math.max(1, Math.min(5, d));
 }
 
+/**
+ * Hard difficulty band derived from the candidate's selected experience level.
+ * The live interview may adapt WITHIN the band (weak answer → easier, strong
+ * answer → harder) but never outside it: a fresher never gets senior system
+ * design, a senior candidate never gets trivial definitions except when
+ * diagnosing a weak answer.
+ */
+export function difficultyBand(seniority: string | undefined | null): { min: number; max: number } {
+  const s = String(seniority ?? "").toLowerCase();
+  if (/student|fresher|entry|graduate|intern/.test(s)) return { min: 1, max: 2 };
+  if (/junior|1\s*[-–to]+\s*3|early/.test(s)) return { min: 2, max: 3 };
+  if (/mid|3\s*[-–to]+\s*5|intermediate/.test(s)) return { min: 3, max: 4 };
+  if (/senior|5\s*\+|lead|principal|staff|architect|experienced/.test(s)) return { min: 4, max: 5 };
+  return { min: 1, max: 5 };
+}
+
+/** Clamp a difficulty value into the seniority band. */
+export function clampToBand(d: number, seniority: string | undefined | null): number {
+  const { min, max } = difficultyBand(seniority);
+  return Math.max(min, Math.min(max, Math.round(d)));
+}
+
 // ---------------------------------------------------------------------------
 // Interview lifecycle: warm-up → self-intro → substantive questions → done.
 // Greeting / self-intro never consume question slots; every question asked
@@ -199,6 +221,56 @@ export type TurnResult = {
 const ANSWER_SLICE = 1500; // keep the evaluator prompt inside its live deadline
 const HISTORY_TURNS = 4; // recent turns sent as context (repetition guard)
 
+// ---------------------------------------------------------------------------
+// Deterministic per-question scoring — correctness-dominant, 0..100.
+// The per-answer score NEVER depends on how many questions were planned; a
+// perfect short answer scores 100 regardless of coverage. Aggregation happens
+// at report time and averages EVALUATED answers only.
+// ---------------------------------------------------------------------------
+
+/**
+ * question_score = correctness*0.60 + relevance*0.20 + completeness*0.20,
+ * where each axis arrives as 0..10. depth/reasoning/communication inform the
+ * written feedback but deliberately do not move the number — correctness is
+ * the dominant factor by design.
+ */
+export function computeQuestionScore(s: Evaluation["scores"]): number {
+  const correctness = (Math.max(0, Math.min(10, Number(s.correctness) || 0)) / 10) * 60;
+  const relevance = (Math.max(0, Math.min(10, Number(s.relevance) || 0)) / 10) * 20;
+  const completeness = (Math.max(0, Math.min(10, Number(s.completeness) || 0)) / 10) * 20;
+  return Math.round(correctness + relevance + completeness);
+}
+
+/** Evidence-based verdict derived from the deterministic score components. */
+export function deriveVerdict(s: Evaluation["scores"]): NonNullable<Evaluation["verdict"]> {
+  const q = computeQuestionScore(s);
+  const correctness = Number(s.correctness) || 0;
+  const relevance = Number(s.relevance) || 0;
+  if (relevance <= 2) return "irrelevant";
+  if (correctness <= 3) return "incorrect";
+  if (q >= 88 && correctness >= 9) return "excellent";
+  if (q >= 75 && correctness >= 7) return "correct";
+  if (correctness >= 5) return "partially_correct";
+  return "incomplete";
+}
+
+/** Attach the deterministic score, verdict and evaluator feedback to an evaluation. */
+function withDeterministicScore(evaluation: Evaluation): Evaluation {
+  const questionScore = computeQuestionScore(evaluation.scores);
+  const verdict = evaluation.verdict && VERDICTS.has(evaluation.verdict) ? evaluation.verdict : deriveVerdict(evaluation.scores);
+  return {
+    ...evaluation,
+    question_score: questionScore,
+    verdict,
+    feedback:
+      evaluation.feedback?.trim() ||
+      evaluation.relevance_note?.trim() ||
+      `Correctness ${evaluation.scores.correctness}/10, relevance ${evaluation.scores.relevance}/10, completeness ${evaluation.scores.completeness}/10.`,
+  };
+}
+
+const VERDICTS = new Set(["excellent", "correct", "partially_correct", "incomplete", "incorrect", "irrelevant"]);
+
 /** Server-side heuristic evaluation used in demo mode or when the LLM fails. */
 function heuristicEvaluation(interview: Interview, answer: string, competency: string, challenge: boolean): Evaluation {
   const words = answer.trim().split(/\s+/).filter(Boolean).length;
@@ -288,6 +360,7 @@ export async function runEvaluationTurn(
         probedCompetencies: probedCompetencies(interview),
         challengeRequested: challenge,
         candidateSummary: interview.candidate.resume_summary ?? null,
+        candidateProjects: interview.candidate.resume_projects ?? null,
         jdSummary: interview.candidate.jd_summary ?? null,
         selfIntroContext: selfIntroContext ?? null,
       }),
@@ -322,6 +395,8 @@ export async function runEvaluationTurn(
     communication: clamp10(s?.communication ?? s?.overall),
     overall: clamp10(s?.overall ?? (s as unknown as Record<string, number> | undefined)?.technical_score),
   };
+  // Re-clamp the verdict enum after validation so persistence never stores junk.
+  if (evaluation.verdict && !VERDICTS.has(evaluation.verdict)) evaluation.verdict = undefined;
   const actions = ["ASK_FOLLOW_UP", "PROBE_WEAKNESS", "INCREASE_DIFFICULTY", "DECREASE_DIFFICULTY", "CHANGE_COMPETENCY", "END_INTERVIEW"] as const;
   const nextAction = actions.includes(evaluation.next_action as (typeof actions)[number]) ? evaluation.next_action : "ASK_FOLLOW_UP";
   const nextQuestion = String(evaluation.next_question_text ?? "").trim();
@@ -367,8 +442,12 @@ export async function runEvaluationTurn(
     reply = reply.replace(/^(interviewer|ai)\s*:\s*/i, "").trim();
   }
 
+  // Attach the deterministic 0..100 question_score, verdict and feedback —
+  // computed from the CLAMPED scores so the persisted number is stable.
+  const finalEvaluation = withDeterministicScore({ ...evaluation, scores, next_action: nextAction });
+
   return {
-    evaluation: { ...evaluation, scores, next_action: nextAction },
+    evaluation: finalEvaluation,
     reply,
     interviewComplete,
     isFollowUp: nextAction === "ASK_FOLLOW_UP" || nextAction === "PROBE_WEAKNESS",
@@ -412,6 +491,9 @@ export async function generateFinalReport(interview: Interview, demoMode: boolea
           competency: e.competency,
           is_follow_up: e.is_follow_up,
           scores: e.evaluation?.scores ?? null,
+          question_score: e.evaluation?.question_score,
+          verdict: e.evaluation?.verdict,
+          feedback: e.evaluation?.feedback,
           ...(e.evaluation
             ? {
                 strengths: e.evaluation.strengths,
@@ -435,6 +517,28 @@ export async function generateFinalReport(interview: Interview, demoMode: boolea
     // Label it honestly instead of presenting heuristic scoring as AI analysis.
     report.headline = report.headline || "Report generated from per-answer evaluations";
     report.summary = `${report.summary} (Generated without the AI reporter — the LLM was unavailable when this report was created.)`;
+  }
+
+  // ---------------------------------------------------------------------
+  // AUTHORITATIVE SCORING — computed from the persisted per-answer scores,
+  // not trusted from the LLM. overall_score is the average quality of
+  // EVALUATED answers only; completion is reported separately.
+  // ---------------------------------------------------------------------
+  const evaluated = interview.qa.filter((e) => typeof e.evaluation?.question_score === "number");
+  const avgAnswer = evaluated.length
+    ? Math.round(evaluated.reduce((a, e) => a + (e.evaluation?.question_score ?? 0), 0) / evaluated.length)
+    : null;
+  const total = interview.blueprint.question_count;
+  const answeredCount = evaluated.length;
+  const completionPct = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
+  report.questions_answered = answeredCount;
+  report.questions_total = total;
+  report.completion_percent = completionPct;
+  report.average_answer_score = avgAnswer ?? 0;
+  if (avgAnswer != null) {
+    // Hard guarantee: quality = mean of evaluated answers. Never the planned
+    // count. This is the fix for implausibly low overall scores.
+    report.overall_score = Math.max(0, Math.min(100, avgAnswer));
   }
 
   // Normalize & guarantee required fields.
@@ -482,22 +586,25 @@ function scoreTo100(avg10: number | null): number {
 }
 
 function buildFallbackReport(interview: Interview, durationMinutes: number | null): Report {
+  // Deterministic overall: mean of the per-answer question scores of EVALUATED
+  // answers — identical contract to the LLM reporter, so both paths agree.
+  const evaluatedEntries = interview.qa.filter((e) => typeof e.evaluation?.question_score === "number");
+  const overall = evaluatedEntries.length
+    ? Math.round(evaluatedEntries.reduce((a, e) => a + (e.evaluation?.question_score ?? 0), 0) / evaluatedEntries.length)
+    : 0;
   const competencyScores = interview.blueprint.competencies.map((c) => ({
     name: c.name,
     score: c.score ?? null,
     weight: c.weight,
   }));
-  const scored = competencyScores.filter((c) => c.score != null) as { name: string; score: number; weight: number }[];
-  const overall = scored.length
-    ? Math.round(scored.reduce((a, c) => a + c.score * c.weight, 0) / scored.reduce((a, c) => a + c.weight, 0))
-    : 0;
 
   const strengths: string[] = [];
   const weaknesses: string[] = [];
   const gaps: string[] = [];
   const misconceptions: string[] = [];
   const review = interview.qa.map((e) => {
-    const pct = scoreTo100(e.evaluation?.scores?.overall ?? null);
+    // Prefer the deterministic per-question score; fall back to the legacy 0..10 conversion.
+    const pct = e.evaluation?.question_score ?? scoreTo100(e.evaluation?.scores?.overall ?? null);
     if (e.evaluation) {
       for (const s of e.evaluation.strengths ?? []) if (!strengths.includes(s)) strengths.push(s);
       for (const w of e.evaluation.weaknesses ?? []) if (!weaknesses.includes(w)) weaknesses.push(w);

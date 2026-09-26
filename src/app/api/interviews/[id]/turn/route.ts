@@ -23,6 +23,7 @@ import {
   buildClosingLine,
   buildOpeningPlan,
   clampDifficulty,
+  clampToBand,
   pickNextCompetency,
   runEvaluationTurn,
   updateCompetencyScores,
@@ -139,7 +140,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           if (evaluation) {
             updateCompetencyScores(i, evaluation, competency);
           }
-          i.difficulty = clampDifficulty(i.difficulty + (evaluation?.difficulty_delta || 0));
+          // Adapt within the experience band: the evaluator's delta moves the
+          // level, but the band clamps it — a fresher interview can never
+          // escalate into senior territory and vice versa.
+          i.difficulty = clampToBand(clampDifficulty(i.difficulty + (evaluation?.difficulty_delta || 0)), i.blueprint.seniority);
         }
       }
 

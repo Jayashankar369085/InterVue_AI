@@ -32,7 +32,16 @@ function SetupInner() {
   const [creating, setCreating] = React.useState(false);
   const fileCache = React.useRef<{ resume?: File; jd?: File }>({});
   const parsed = React.useRef<{
-    resume?: { text: string; summary?: string; skills?: string[] };
+    resume?: {
+      text: string;
+      summary?: string;
+      skills?: string[];
+      projects?: { name: string; description?: string; technologies?: string[] }[];
+      experience?: { role: string; company?: string; period?: string; details?: string }[];
+      education?: string[];
+      certifications?: string[];
+      highlights?: string[];
+    };
     jd?: { text: string; summary?: string; skills?: string[] };
   }>({});
 
@@ -53,7 +62,16 @@ function SetupInner() {
       const res = await fetch("/api/documents/parse", { method: "POST", body: fd });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Could not read that file");
-      parsed.current[kind] = { text: data.text, summary: data.analysis?.summary, skills: data.analysis?.skills };
+      parsed.current[kind] = {
+        text: data.text,
+        summary: data.analysis?.summary,
+        skills: data.analysis?.skills,
+        projects: data.analysis?.projects,
+        experience: data.analysis?.experience,
+        education: data.analysis?.education,
+        certifications: data.analysis?.certifications,
+        highlights: data.analysis?.highlights,
+      };
       fileCache.current[kind] = file;
       (kind === "resume" ? setResume : setJd)({ name: file.name, size: file.size });
       setState("done");
@@ -90,6 +108,11 @@ function SetupInner() {
           resumeText: parsed.current.resume?.text,
           resumeSummary: parsed.current.resume?.summary,
           resumeSkills: parsed.current.resume?.skills,
+          resumeProjects: parsed.current.resume?.projects,
+          resumeExperience: parsed.current.resume?.experience,
+          resumeEducation: parsed.current.resume?.education,
+          resumeCertifications: parsed.current.resume?.certifications,
+          resumeHighlights: parsed.current.resume?.highlights,
           jobDescription: parsed.current.jd?.text,
           jdSummary: parsed.current.jd?.summary,
           jdSkills: parsed.current.jd?.skills,

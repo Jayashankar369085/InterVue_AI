@@ -4,7 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { createInterview } from "@/lib/interview/store";
-import { normalizeBlueprint, pickNextCompetency } from "@/lib/interview/engine";
+import { normalizeBlueprint, pickNextCompetency, clampToBand } from "@/lib/interview/engine";
 import { PLANNER_SYSTEM_PROMPT, generateJson, isDemoMode } from "@/lib/ai/llm";
 import type { InterviewBlueprint, PlanRequest } from "@/types/interview";
 
@@ -42,12 +42,25 @@ function demoBlueprint(req: PlanRequest): InterviewBlueprint {
   };
 }
 
+/** Canonical seniority labels — the hard difficulty band is derived from these. */
+const EXPERIENCE_LABELS: Record<string, string> = {
+  student: "Student/Fresher",
+  junior: "1-3 years",
+  mid: "3-5 years",
+  senior: "5+ years",
+};
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as PlanRequest & {
       resumeText?: string;
       resumeSummary?: string;
       resumeSkills?: string[];
+      resumeProjects?: { name?: string; description?: string; technologies?: string[] }[];
+      resumeExperience?: { role?: string; company?: string; period?: string; details?: string }[];
+      resumeEducation?: string[];
+      resumeCertifications?: string[];
+      resumeHighlights?: string[];
       jobDescription?: string;
       jdSummary?: string;
       jdSkills?: string[];
@@ -70,6 +83,16 @@ export async function POST(req: Request) {
     const targetCount = LENGTH_MAP[planRequest.length ?? "standard"] ?? 10;
     const resumeSummary = typeof body.resumeSummary === "string" ? body.resumeSummary : null;
     const jdSummary = typeof body.jdSummary === "string" ? body.jdSummary : null;
+    // Structured resume profile from the document analyzer — never invented.
+    const resumeProjects = Array.isArray(body.resumeProjects)
+      ? body.resumeProjects.slice(0, 8).map((p) => ({ name: String(p?.name ?? "").slice(0, 120), description: String(p?.description ?? "").slice(0, 500), technologies: Array.isArray(p?.technologies) ? p.technologies.map(String).slice(0, 12) : [] }))
+      : [];
+    const resumeExperience = Array.isArray(body.resumeExperience)
+      ? body.resumeExperience.slice(0, 6).map((e) => ({ role: String(e?.role ?? "").slice(0, 120), company: String(e?.company ?? "").slice(0, 120), period: String(e?.period ?? "").slice(0, 60), details: String(e?.details ?? "").slice(0, 500) }))
+      : [];
+    const resumeEducation = Array.isArray(body.resumeEducation) ? body.resumeEducation.map(String).slice(0, 6) : [];
+    const resumeCertifications = Array.isArray(body.resumeCertifications) ? body.resumeCertifications.map(String).slice(0, 8) : [];
+    const resumeHighlights = Array.isArray(body.resumeHighlights) ? body.resumeHighlights.map(String).slice(0, 10) : [];
 
     let blueprintPartial: Partial<InterviewBlueprint> | null = null;
     if (!isDemoMode()) {
@@ -111,6 +134,12 @@ export async function POST(req: Request) {
       targetCount
     );
     if (blueprintPartial) blueprint.question_count = targetCount;
+    // The user's explicit experience selection is authoritative for the
+    // difficulty band (Task 2) — it overrides whatever label the LLM chose.
+    const experienceKey = String(planRequest.experience ?? "");
+    if (EXPERIENCE_LABELS[experienceKey]) {
+      blueprint.seniority = EXPERIENCE_LABELS[experienceKey];
+    }
 
     const firstCompetency = pickNextCompetency(blueprint, []);
     const interview = await createInterview({
@@ -120,6 +149,11 @@ export async function POST(req: Request) {
         resume_text: typeof body.resumeText === "string" ? body.resumeText.slice(0, 20000) : null,
         resume_summary: resumeSummary,
         resume_skills: Array.isArray(body.resumeSkills) ? body.resumeSkills.map(String).slice(0, 60) : [],
+        resume_projects: resumeProjects,
+        resume_experience: resumeExperience,
+        resume_education: resumeEducation,
+        resume_certifications: resumeCertifications,
+        resume_highlights: resumeHighlights,
         job_description: typeof body.jobDescription === "string" ? body.jobDescription.slice(0, 20000) : null,
         jd_summary: jdSummary,
         jd_skills: Array.isArray(body.jdSkills) ? body.jdSkills.map(String).slice(0, 60) : [],
@@ -132,7 +166,9 @@ export async function POST(req: Request) {
       substantive_asked: 0,
       current_competency: null,
       current_is_follow_up: false,
-      difficulty: blueprint.difficulty === "Hard" ? 4 : blueprint.difficulty === "Easy" ? 2 : 3,
+      // Seed difficulty from the plan, then clamp into the experience band so
+      // even a "Stress" style can never start a fresher above easy/moderate.
+      difficulty: clampToBand(blueprint.difficulty === "Hard" ? 4 : blueprint.difficulty === "Easy" ? 2 : 3, blueprint.seniority),
       covered_question_types: [],
       communication_indicators: [],
       report: null,

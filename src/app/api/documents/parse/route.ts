@@ -10,7 +10,16 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 type DocKind = "resume" | "job_description";
-type DocAnalysis = { summary: string; skills: string[]; highlights: string[]; seniority?: string };
+type DocAnalysis = {
+  summary: string;
+  skills: string[];
+  projects?: { name: string; description?: string; technologies?: string[] }[];
+  experience?: { role: string; company?: string; period?: string; details?: string }[];
+  education?: string[];
+  certifications?: string[];
+  highlights: string[];
+  seniority?: string;
+};
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
@@ -70,9 +79,15 @@ export async function POST(req: Request) {
         analysis: {
           summary: clipped.slice(0, 240),
           skills: [],
+          projects: [],
+          experience: [],
+          education: [],
+          certifications: [],
           highlights: [],
         } satisfies DocAnalysis,
         demo: true,
+        demo_notice: "LLM parsing unavailable — resume context will be limited to raw text matching.",
+        demo_notice_paste: "For full AI parsing without an LLM key, paste key skills and projects into the role field.",
       });
     }
 
@@ -86,7 +101,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       text: clipped,
-      analysis: analysis ?? { summary: clipped.slice(0, 240), skills: [], highlights: [] },
+      analysis: analysis ?? { summary: clipped.slice(0, 240), skills: [], projects: [], experience: [], education: [], certifications: [], highlights: [] },
       demo: false,
     });
   } catch (err) {

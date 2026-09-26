@@ -67,6 +67,13 @@ export type Evaluation = {
   acknowledgement?: string;
   /** Difficulty the interviewer should aim for next: -1 easier, 0 same, +1 harder. */
   difficulty_delta: number;
+  /** Deterministic 0..100 per-question score: correctness*0.6 + relevance*0.2 + completeness*0.2.
+   *  Computed server-side from the 0..10 axes so aggregation can never drift. */
+  question_score?: number;
+  /** Evidence-based classification of the answer quality. */
+  verdict?: "excellent" | "correct" | "partially_correct" | "incorrect" | "irrelevant" | "incomplete";
+  /** One-line evaluator feedback explaining the score (why it was right/wrong). */
+  feedback?: string;
 };
 
 export type CommunicationIndicators = {
@@ -98,7 +105,15 @@ export type QAEntry = {
 };
 
 export type Report = {
-  overall_score: number; // 0..100
+  overall_score: number; // 0..100 — the AVERAGE per-answer quality of EVALUATED answers only
+  /** How many questions carried an evaluated answer (e.g. 4). */
+  questions_answered?: number;
+  /** How many questions the plan targeted (e.g. 5). */
+  questions_total?: number;
+  /** Answered/target as a percentage, reported SEPARATELY from quality. */
+  completion_percent?: number;
+  /** Mean per-answer score of evaluated answers — the honest basis of overall_score. */
+  average_answer_score?: number;
   headline: string;
   summary: string;
   /** Category scores — categories are chosen dynamically per domain. */
@@ -131,6 +146,12 @@ export type CandidateContext = {
   resume_text?: string | null;
   resume_summary?: string | null;
   resume_skills?: string[];
+  /** Structured resume profile extracted by the document analyzer (never invented). */
+  resume_projects?: { name: string; description?: string; technologies?: string[] }[];
+  resume_experience?: { role: string; company?: string; period?: string; details?: string }[];
+  resume_education?: string[];
+  resume_certifications?: string[];
+  resume_highlights?: string[];
   job_description?: string | null;
   jd_summary?: string | null;
   jd_skills?: string[];

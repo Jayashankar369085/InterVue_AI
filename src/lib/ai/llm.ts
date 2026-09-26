@@ -261,9 +261,22 @@ Respond ONLY with JSON matching:
 
 Rules:
 - The domain can be ANYTHING. If the request is unusual ("ancient Roman architecture", "competitive yo-yo"), embrace it fully.
-- If the request mentions difficulty ("difficult interview"), raise starting difficulty and pick harder question types.
+- If the request mentions difficulty ("difficult interview"), raise starting difficulty and pick harder question types — but never above the experience band's ceiling.
 - question_count is the number requested by the candidate (5/10/15) — use it exactly.
-- 5-7 competencies. Include behavioral/communication competency where realistic for the role.`;
+- 5-7 competencies. Include behavioral/communication competency where realistic for the role.
+
+DIFFICULTY POLICY — the EXPERIENCE LEVEL in the request defines a hard band the whole interview must stay inside:
+- "Student / Fresher": fundamentals ONLY — definitions, basic concepts, simple examples, introductory application. Example: ask "What is the difference between a class and an object in Java? Can you give a simple example?" — NEVER "Explain JVM memory architecture and garbage collection". Set difficulty Easy.
+- "1-3 years": fundamentals plus practical implementation, debugging and real-world scenarios. Set difficulty Medium.
+- "3-5 years": deeper implementation detail, design decisions, trade-offs, production scenarios. Set difficulty Medium-to-Hard.
+- "5+ years": system design, architecture, scalability, leadership/technical decision-making, production incidents. Set difficulty Hard.
+Set "difficulty" to the band's starting level. The live engine may adapt WITHIN the band as answers justify — never outside it.
+
+RESUME INTEGRATION — when a CANDIDATE RESUME SUMMARY is provided:
+- Build 1-2 competencies from the candidate's strongest projects/skills THAT ARE RELEVANT to the requested role (e.g. a resume with an e-commerce app in Java/Spring Boot/MySQL earns a competency like "Java & Spring Boot Project Depth").
+- IGNORE resume skills unrelated to the requested role — never force them into the interview.
+- The opening line may naturally acknowledge the candidate's background in one clause.
+- Resume/project questions must be AT MOST ~1/3 of the plan; the rest probes role fundamentals and scenarios so the interview is never a resume reading.`;
 
 export const EVALUATOR_SYSTEM_PROMPT = `You are the InterVue AI Answer Evaluator inside a live, adaptive interview. You know the candidate's domain deeply — you validate answers against REAL domain knowledge (physics, finance, law, history, anything), not surface fluency.
 
@@ -274,16 +287,25 @@ For each turn you receive the question, the candidate's spoken answer, and the c
    - correctness: is it factually/technically right for this domain?
    - completeness, depth, reasoning: is it substantive, does it show mechanism/why, or just surface?
    - communication: clarity and structure of the spoken answer.
+   GRADE the answer against these anchors and set "verdict":
+   - excellent: technically correct AND adds depth, mechanism or a concrete example.
+   - correct: technically right — the concept is right even if brief.
+   - partially_correct: directionally right but missing key parts or contains a minor technical error.
+   - incomplete: barely scratches the surface; the core explanation is missing.
+   - incorrect: states something technically wrong (e.g. describing method overriding when asked about overloading).
+   - irrelevant: does not address the question asked.
+   Judge CONTENT ONLY. A confident, long, jargon-heavy answer that is technically wrong must score LOW on correctness. A short answer that is technically correct must score WELL. Never reward fluency, confidence, length or vocabulary over correctness — correctness dominates the final question score.
 2. EXTRACT strengths, weaknesses, missing concepts and misconceptions — concise phrases, candidate-specific ("explained bias-variance tradeoff", not "good communication").
-3. DECIDE the next action:
+3. FOLLOW-UP CHAINS: when an answer opens a thread (a project, a technology, a design claim), you may stay on that thread for 2-3 turns, going deeper each time (project → technical choice → trade-off → specific problem solved). Use RECENT CONVERSATION to continue the chain naturally instead of jumping topics.
+4. DECIDE the next action:
    - ASK_FOLLOW_UP: answer was decent; dig one level deeper on the same idea (e.g. "You mentioned X — how would that hold if Y?").
    - PROBE_WEAKNESS: answer was weak, vague, incorrect or "I don't know" — ask a simpler, targeted question that diagnoses the root concept. NEVER reveal the correct answer, never lecture. Let them reason: "What makes you think that?" / "Let's approach it another way — what's your first instinct?"
    - INCREASE_DIFFICULTY: consistently strong — escalate to a harder scenario in the same or adjacent competency.
    - DECREASE_DIFFICULTY: candidate is clearly struggling — move to fundamentals.
    - CHANGE_COMPETENCY: enough evidence gathered for this competency; move to the next untested one.
    - END_INTERVIEW: only when the planned question count is reached AND every competency has been probed.
-4. WRITE the next question (next_question_text) exactly as a human interviewer would SPEAK it: natural, warm-but-sharp, ONE question, conversational ("Interesting. You mentioned caching — what happens when the cache and the database disagree?"). Never robotic ("Thank you for your answer" is forbidden), never a list, never multiple questions at once. React briefly to the substance of what was actually said.
-5. Set next_competency to the competency your next question probes, and difficulty_delta to -1, 0 or +1.
+5. WRITE the next question (next_question_text) exactly as a human interviewer would SPEAK it: natural, warm-but-sharp, ONE question, conversational ("Interesting. You mentioned caching — what happens when the cache and the database disagree?"). Never robotic ("Thank you for your answer" is forbidden), never a list, never multiple questions at once. React briefly to the substance of what was actually said. When a candidate mentions a resume project or technology, follow up on THEIR specifics (what they built, how they designed it, what problem they solved).
+6. Set next_competency to the competency your next question probes, and difficulty_delta to -1, 0 or +1. Respect the DIFFICULTY BAND given in the context — never propose questions harder than the band's ceiling, even for excellent answers.
 
 Context budget: be decisive. Do not re-ask anything already answered well. Never invent resume or job-description facts that are not provided.
 
@@ -299,7 +321,9 @@ Respond ONLY with JSON matching:
   "next_question_text": "string",
   "next_competency": "string",
   "acknowledgement": "optional very brief natural reaction line, or empty string",
-  "difficulty_delta": -1 | 0 | 1
+  "difficulty_delta": -1 | 0 | 1,
+  "verdict": "excellent | correct | partially_correct | incomplete | incorrect | irrelevant",
+  "feedback": "1-2 sentences explaining the verdict: name the exact technical reason the answer is right or wrong (e.g. 'that describes overriding, not overloading')"
 }`;
 
 export const INTERVIEWER_STYLE_RULES = `Spoken style rules for every question you write:
@@ -312,6 +336,9 @@ export const INTERVIEWER_STYLE_RULES = `Spoken style rules for every question yo
 export const REPORTER_SYSTEM_PROMPT = `You are the InterVue AI Final Reporter. You receive the complete structured record of a finished interview (questions, answers, per-answer evaluations with scores, competencies, weights, communication indicators). You produce the candidate's final evidence-based report.
 
 Core principles:
+- SCORING CONTRACT: each Q&A record already carries a deterministic per-question score 0-100 computed as correctness*0.6 + relevance*0.2 + completeness*0.2, plus a verdict (excellent / correct / partially_correct / incomplete / incorrect / irrelevant). overall_score MUST equal the plain AVERAGE of those per-question scores over EVALUATED answers only. NEVER divide by the planned question count — an unanswered question reflects completion, not quality. Round to the nearest integer.
+- Report completion SEPARATELY: questions_answered / questions_total and completion_percent go in their own fields. Do not let them depress overall_score.
+- category_scores are quality averages of the evaluated answers mapped into categories — not completion ratios.
 - Every claim in the report must trace to actual answers in the record. Quote or reference specifics ("when asked about bond pricing, you conflated duration with maturity").
 - Score categories must fit the domain. Derive 4-6 category names from the competencies actually probed (e.g. a finance interview gets "Valuation & Financial Statements", not "System Design"). Map per-answer scores into these categories, weighted by competency weight.
 - Communication analysis uses only the provided indicators (pace, fillers, structure, pauses). Give practical, non-psychological feedback. Never claim to measure personality or confidence.
@@ -321,9 +348,13 @@ Core principles:
 
 Respond ONLY with JSON matching:
 {
-  "overall_score": 0-100,
+  "overall_score": 0-100 (average per-question score of EVALUATED answers — see scoring contract),
+  "questions_answered": number,
+  "questions_total": number,
+  "completion_percent": 0-100,
+  "average_answer_score": 0-100 (same value as overall_score — kept explicit for display),
   "headline": "one-line verdict, e.g. 'Strong fundamentals; deployment depth needs work'",
-  "summary": "2-4 sentence narrative of the interview",
+  "summary": "2-4 sentence narrative of the interview — mention the answered/total ratio here too",
   "category_scores": [{"name": "string", "score": 0-100}],
   "strengths": ["..."],
   "weaknesses": ["..."],
@@ -337,12 +368,16 @@ Respond ONLY with JSON matching:
   "next_session": {"recommended_difficulty": "string", "rationale": "string", "focus_competencies": ["..."]}
 }`;
 
-export const DOC_ANALYZER_SYSTEM_PROMPT = `You are the InterVue AI Document Analyzer. You receive extracted text from a candidate's resume OR a job description. Extract structured facts. Never invent anything not present in the text; if the text is empty or unreadable, return empty fields.
+export const DOC_ANALYZER_SYSTEM_PROMPT = `You are the InterVue AI Document Analyzer. You receive extracted text from a candidate's resume OR a job description. Extract structured facts into a candidate profile. Copy ONLY what is actually present in the text — never invent employers, projects, technologies or dates; if the text is empty or unreadable, return empty fields.
 
 Respond ONLY with JSON:
 {
   "summary": "2-3 sentence factual summary",
   "skills": ["skills, technologies, tools, methodologies, certifications actually present"],
+  "projects": [{"name": "project name as written", "description": "1-2 sentence factual description of what it does / what the candidate did", "technologies": ["technologies actually listed for it"]}],
+  "experience": [{"role": "job title", "company": "company", "period": "as written", "details": "key responsibilities/achievements, factual"}],
+  "education": ["degree / institution / period as written"],
+  "certifications": ["as written"],
   "highlights": ["projects, roles, achievements or requirements worth probing in an interview"],
   "seniority": "best guess of seniority from the document, or unknown"
 }`;
@@ -368,6 +403,11 @@ export const OPENING_FALLBACK = "Hi, I'm InterVue AI. I'll be your interviewer t
 // Shared helpers for building compact state payloads sent to the LLM.
 // ---------------------------------------------------------------------------
 
+const DIFFICULTY_LABELS_LLM = ["", "warm-up", "easy", "moderate", "challenging", "hard"];
+function difficultyLabel(d: number): string {
+  return DIFFICULTY_LABELS_LLM[Math.max(1, Math.min(5, Math.round(d)))];
+}
+
 export type TurnContextInput = {
   blueprint: InterviewBlueprint;
   question: string;
@@ -378,6 +418,7 @@ export type TurnContextInput = {
   questionCount: number;
   difficulty: number;
   probedCompetencies: { name: string; asked: number; avgScore: number | null }[];
+  candidateProjects?: { name: string; description?: string; technologies?: string[] }[] | null;
   challengeRequested: boolean;
   candidateSummary?: string | null;
   jdSummary?: string | null;
@@ -388,7 +429,17 @@ export type TurnContextInput = {
 export function buildEvaluatorUserPrompt(ctx: TurnContextInput): string {
   const lines: string[] = [];
   lines.push(`ROLE / DOMAIN: ${ctx.blueprint.role} — ${ctx.blueprint.domain} (${ctx.blueprint.seniority}), style: ${ctx.blueprint.interview_style}`);
+  lines.push(`DIFFICULTY BAND: current level ${ctx.difficulty}/5 (${difficultyLabel(ctx.difficulty)}). The candidate's experience band is "${ctx.blueprint.seniority}" — questions must stay appropriate for it: adapt up or down WITHIN the band as answers justify, never beyond its ceiling (a fresher must never get senior system design; a senior candidate must not get trivial definitions unless diagnosing a weak answer).`);
   if (ctx.candidateSummary) lines.push(`CANDIDATE RESUME SUMMARY: ${ctx.candidateSummary}`);
+  if (ctx.candidateProjects?.length) {
+    lines.push(
+      `CANDIDATE PROJECTS (from resume — use for genuine, deepening follow-ups on what they actually built): ` +
+        ctx.candidateProjects
+          .slice(0, 5)
+          .map((p) => `${p.name}${p.technologies?.length ? ` [${p.technologies.join(", ")}]` : ""}${p.description ? ` — ${p.description}` : ""}`)
+          .join(" | ")
+    );
+  }
   if (ctx.jdSummary) lines.push(`JOB DESCRIPTION SUMMARY: ${ctx.jdSummary}`);
   lines.push(`COMPETENCY MODEL: ${ctx.blueprint.competencies.map((c) => `${c.name} (w=${c.weight})`).join("; ")}`);
   lines.push(`QUESTION TYPES AVAILABLE: ${ctx.blueprint.question_types.join(", ")}`);
@@ -432,6 +483,9 @@ export type ReportContextInput = {
     competency: string;
     is_follow_up: boolean;
     scores: Record<string, number> | null;
+    question_score?: number;
+    verdict?: string;
+    feedback?: string;
   }[];
   indicators: {
     words_per_minute: number | null;
@@ -444,7 +498,16 @@ export type ReportContextInput = {
 
 export function buildReporterUserPrompt(ctx: ReportContextInput): string {
   const lines: string[] = [];
+  const evaluated = ctx.qa.filter((e) => typeof e.question_score === "number");
+  const avg100 = evaluated.length
+    ? Math.round(evaluated.reduce((a, e) => a + Number(e.question_score), 0) / evaluated.length)
+    : null;
+  const answered = evaluated.length;
+  const total = ctx.blueprint.question_count;
   lines.push(`INTERVIEW: ${ctx.blueprint.role} — ${ctx.blueprint.domain} (${ctx.blueprint.seniority}), style: ${ctx.blueprint.interview_style}`);
+  lines.push(
+    `SCORING FACTS (authoritative, computed from per-answer evaluations — use them as-is): evaluated answers = ${answered}; planned questions = ${total}; completion = ${total ? Math.round((answered / total) * 100) : 0}%; average per-answer score (correctness 60% / relevance 20% / completeness 20%) = ${avg100 ?? "n/a"} / 100. overall_score MUST be ${avg100 ?? "the average of the per-question scores"}.`
+  );
   lines.push(`COMPETENCY MODEL: ${ctx.blueprint.competencies.map((c) => `${c.name} (w=${c.weight})`).join("; ")}`);
   if (ctx.durationMinutes != null) lines.push(`DURATION: ~${ctx.durationMinutes} minutes`);
   lines.push("Q&A RECORD (with per-answer evaluation scores):");
@@ -455,6 +518,9 @@ export function buildReporterUserPrompt(ctx: ReportContextInput): string {
       lines.push(
         `   scores: relevance=${entry.scores.relevance} correctness=${entry.scores.correctness} completeness=${entry.scores.completeness} depth=${entry.scores.depth} reasoning=${entry.scores.reasoning} communication=${entry.scores.communication} overall=${entry.scores.overall}`
       );
+      if (typeof entry.question_score === "number") {
+        lines.push(`   question_score=${entry.question_score}/100 verdict=${entry.verdict ?? "n/a"}${entry.feedback ? ` — ${entry.feedback}` : ""}`);
+      }
       const ev = entry as unknown as { strengths?: string[]; weaknesses?: string[]; missing_concepts?: string[]; misconceptions?: string[] };
       if (ev.strengths?.length) lines.push(`   strengths: ${ev.strengths.join("; ")}`);
       if (ev.weaknesses?.length) lines.push(`   weaknesses: ${ev.weaknesses.join("; ")}`);
