@@ -23,7 +23,24 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function isTransientLlmError(err: unknown): boolean {
   const msg = String((err as Error)?.message ?? err);
+  // 401/403 are PERMANENT credential/permission failures — retrying them on
+  // every ladder model just wastes the budget and masks a misconfiguration as
+  // "overloaded". They are classified separately by isAuthLlmError.
+  if (isAuthLlmError(err)) return false;
   return /\b(429|503|500)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand|rate limit/i.test(msg);
+}
+
+/** Groq rejected the credential itself (401) or refuses it for this account (403). */
+function isAuthLlmError(err: unknown): boolean {
+  const msg = String((err as Error)?.message ?? err);
+  return /\b(401|403)\b|invalid_api_key|invalid api key/i.test(msg);
+}
+
+/** Which env var supplied the active credential — for diagnosis only, never the value. */
+function keySource(): string {
+  if (process.env.GROQ_API_KEY?.trim()) return "GROQ_API_KEY";
+  if (process.env.LLM_API_KEY?.trim()) return "LLM_API_KEY (legacy fallback — a non-Groq key here always fails with 401)";
+  return "none";
 }
 
 // Groq's free tier is generous (dozens of req/min vs Gemini's 5) but rate-limit
@@ -179,6 +196,7 @@ export async function generateJson<T = Record<string, unknown>>(opts: GenOpts): 
           modelCooldowns.delete(model);
           return parsed;
         } catch (err) {
+          if (isAuthLlmError(err)) throw err; // permanent — skip retries AND the rest of the ladder
           lastErr = err;
           const transient = isTransientLlmError(err);
           if (transient && /429|RESOURCE_EXHAUSTED|quota|rate limit/i.test(String((err as Error)?.message ?? err))) {
@@ -201,7 +219,17 @@ export async function generateJson<T = Record<string, unknown>>(opts: GenOpts): 
     console.error("[llm] generateJson failed after ladder:", (lastErr as Error)?.message ?? lastErr);
     return null;
   } catch (err) {
-    console.error("[llm] generateJson failed:", (err as Error)?.message ?? err);
+    if (isAuthLlmError(err)) {
+      // The single most operator-actionable failure: the deployment environment
+      // is missing (or has an invalid) GROQ_API_KEY. Say exactly that.
+      console.error(
+        `[llm] Groq rejected the credential — active key source: ${keySource()}. ` +
+          `Upstream: ${(err as Error)?.message ?? err}. ` +
+          `Fix: set a valid GROQ_API_KEY (gsk_…) in the deployment environment (Amplify console → env vars/secrets) and redeploy.`
+      );
+    } else {
+      console.error("[llm] generateJson failed:", (err as Error)?.message ?? err);
+    }
     return null;
   }
 }
