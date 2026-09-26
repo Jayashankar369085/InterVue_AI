@@ -13,8 +13,14 @@ frontend:
 
     build:
       commands:
-        - env | grep -e INTERVIEWS_TABLE_NAME >> .env.production
-        - env | grep -e NEXT_PUBLIC_DEMO_MODE >> .env.production
+        # Amplify console variables are available at BUILD time only — the Next.js
+        # SSR runtime never sees them. AWS's documented mechanism is to bake the
+        # needed names into .env.production before `next build`:
+        # https://docs.aws.amazon.com/amplify/latest/userguide/ssr-environment-variables.html
+        # LLM_API_KEY and ASSEMBLYAI_API_KEY are console "Use secrets" entries —
+        # values are redirected straight into the env file, never printed to logs.
+        # `|| true` so a missing variable can never fail the build (grep exits 1).
+        - env | grep -e INTERVIEWS_TABLE_NAME -e NEXT_PUBLIC_DEMO_MODE -e LLM_API_KEY -e ASSEMBLYAI_API_KEY >> .env.production || true
         - npm run build
 
   artifacts:

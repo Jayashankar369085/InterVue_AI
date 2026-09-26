@@ -65,6 +65,16 @@ InterVue AI is an adaptive, real-time voice interview platform. It goes beyond a
    ```
    Runs the full API loop (plan → turns → challenge → end → report → practice) across multiple domains.
 
+## AWS Amplify Deployment (production secrets)
+
+Amplify console environment variables are available at **build time only** — the Next.js SSR runtime never receives them directly (by design, per [AWS docs](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-environment-variables.html)). The required server-side variables are therefore baked into `.env.production` during the build (see `amplify.yml`):
+
+- `INTERVIEWS_TABLE_NAME` — DynamoDB persistence (auth is the Amplify **compute role**, never static keys)
+- `NEXT_PUBLIC_DEMO_MODE` — informational
+- `LLM_API_KEY`, `ASSEMBLYAI_API_KEY` — set in the Amplify console with **Use secrets** enabled; values are redirected straight into `.env.production` and never printed to build logs
+
+Adding a new server-side env var in production requires: set it in the Amplify console, add its name to the `env | grep ... >> .env.production` line in `amplify.yml`, and redeploy.
+
 ## Demo Flow (Hackathon)
 
 1. Navigate to `/`
