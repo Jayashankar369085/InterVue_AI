@@ -190,4 +190,10 @@ export type TurnResponse = {
   evaluation: Evaluation | null;
   reply: string;
   interview_complete: boolean;
+  /** True when the reply came from heuristics instead of the real LLM
+   *  (demo mode, model overload, or deadline exhaustion). The UI shows an
+   *  honest notice instead of pretending the AI adapted to the answer. */
+  degraded?: boolean;
+  /** Human-readable reason, when degraded. */
+  degraded_reason?: string;
 };

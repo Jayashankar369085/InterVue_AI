@@ -37,12 +37,18 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: "No answers were recorded in this interview, so there is nothing to evaluate." }, { status: 400 });
     }
 
+    // Mirrors the engine's own LLM-attempt condition, so the client can tell an
+    // AI-generated report from the deterministic fallback (shown honestly, never faked).
+    const usedLlm = !isDemoMode() && interview.qa.some((q) => q.evaluation);
     const report = await generateFinalReport(interview, isDemoMode());
     const saved = await saveReport(id, report);
     if (!saved) {
       return NextResponse.json({ error: "Could not save the report." }, { status: 500 });
     }
-    return NextResponse.json({ interview: saved, report: saved.report });
+    if (!usedLlm) {
+      console.warn(`[report] fallback report served for ${id} (LLM unavailable or no evaluated answers).`);
+    }
+    return NextResponse.json({ interview: saved, report: saved.report, generated_with_llm: usedLlm });
   } catch (err) {
     console.error("[report] failed:", err);
     return NextResponse.json({ error: "Could not generate the final report. Please retry." }, { status: 500 });

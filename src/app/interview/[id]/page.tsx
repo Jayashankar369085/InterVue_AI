@@ -6,7 +6,8 @@ import { Mic, MicOff, PhoneOff, AlertCircle, Zap, Send, Radio, Loader2, Play } f
 import { Logo, ThemeToggle } from "@/components/site-nav";
 import { VoiceOrb } from "@/components/voice-orb";
 import { cn } from "@/lib/utils";
-import type { Interview } from "@/types/interview";
+import { fetchJson } from "@/lib/http";
+import type { Interview, TurnResponse } from "@/types/interview";
 
 // ---------------------------------------------------------------------------
 // Audio pipeline: mic → 16 kHz mono PCM16 → AssemblyAI v3 streaming WebSocket.
@@ -157,13 +158,16 @@ export default function InterviewPage() {
       setPhaseBoth("THINKING");
 
       try {
-        const res = await fetch(`/api/interviews/${interviewIdRef.current}/turn`, {
+        const r = await fetchJson<TurnResponse>(`/api/interviews/${interviewIdRef.current}/turn`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ answer, challenge, duration_seconds: dur, ended_by: "voice" }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Could not process that answer.");
+        if (!r.ok || !r.data) throw new Error(r.error || "Could not process that answer.");
+        const data = r.data;
+        if (data.degraded) {
+          console.warn("[interview] degraded reply:", data.degraded_reason);
+        }
 
         if (answer) setEntries((prev) => [...prev, { role: "user", text: answer }]);
         const updated: Interview | undefined = data.interview;
@@ -483,11 +487,10 @@ export default function InterviewPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/interviews/${id}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Interview not found");
+        const r = await fetchJson<{ interview: Interview }>(`/api/interviews/${id}`);
+        if (!r.ok || !r.data) throw new Error(r.error || "Interview not found");
         if (cancelled) return;
-        const iv: Interview = data.interview;
+        const iv: Interview = r.data.interview;
         setInterview(iv);
         interviewRef.current = iv;
         setEntries(iv.transcript.map((t) => ({ role: t.role, text: t.text })));

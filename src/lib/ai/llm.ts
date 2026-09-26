@@ -28,7 +28,22 @@ function isTransientLlmError(err: unknown): boolean {
 // 429 RESOURCE_EXHAUSTED with a long retryDelay, hammering it wastes seconds of a
 // live interview — so record a per-model cooldown and let the ladder route around it.
 const modelCooldowns = new Map<string, number>(); // model → epoch ms until which it should be skipped
-const MAX_WAIT_MS = 8000;
+
+/**
+ * Platform hard limits that shape our budgets (measured on AWS Amplify Hosting):
+ * the SSR compute function for any single HTTP request is killed at ~30s with an
+ * empty 504 body, and the total request+response must fit inside ~29s. Anything
+ * longer produces an empty response and client-side "Unexpected end of JSON input".
+ * Every interactive (non-patient) call must therefore finish well inside that —
+ * including the upload-size guard below.
+ */
+export const SSR_REQUEST_BUDGET_MS = 25_000;
+
+/** Clamp an evaluator/reporter prompt so the LLM call stays inside its deadline. */
+export function truncatePromptPayload(prompt: string): string {
+  if (prompt.length <= 16_000) return prompt;
+  return prompt.slice(0, 16_000) + "\n[Prompt truncated to fit the live-interview time budget]";
+}
 
 /** Extract the "retry in Xs" delay (seconds) from a Google quota error message. */
 function retryDelaySeconds(err: unknown): number {
@@ -95,8 +110,10 @@ export async function generateJson<T = Record<string, unknown>>(opts: GenOpts): 
   // non-interactive calls (plan/report/practice) may wait out quota windows —
   // but never so long that the HTTP route (maxDuration 60) or the client's
   // fetch times out first.
-  const BUDGET_MS = opts.patient ? 90_000 : 20_000;
-  const PER_ATTEMPT_MS = opts.patient ? 45_000 : 9_000;
+  // Patient budget stays under the platform's ~30s kill window WITH headroom
+  // for cold start, DynamoDB reads and the report save (~7s combined).
+  const BUDGET_MS = opts.patient ? 22_000 : SSR_REQUEST_BUDGET_MS;
+  const PER_ATTEMPT_MS = opts.patient ? 20_000 : 8_500;
   const deadline = Date.now() + BUDGET_MS;
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -114,7 +131,9 @@ export async function generateJson<T = Record<string, unknown>>(opts: GenOpts): 
           const response = await Promise.race([
             ai.models.generateContent({
               model,
-              contents: [{ role: "user", parts: [{ text: opts.user }] }],
+              // Truncation guard: oversized payloads (long answers + history) are
+              // the #1 cause of per-attempt timeouts on live turns.
+              contents: [{ role: "user", parts: [{ text: truncatePromptPayload(opts.user) }] }],
               config: {
                 systemInstruction: opts.system,
                 responseMimeType: "application/json",
@@ -139,7 +158,7 @@ export async function generateJson<T = Record<string, unknown>>(opts: GenOpts): 
             // Quota window — park this model for the requested delay.
             const waitS = retryDelaySeconds(err);
             modelCooldowns.set(model, Date.now() + Math.min(waitS, 90) * 1000);
-            const maxWait = opts.patient ? 65_000 : 8_000;
+            const maxWait = opts.patient ? 20_000 : 4_000;
             if (waitS * 1000 > maxWait || Date.now() + waitS * 1000 >= deadline) break; // wait too long; next model
             await sleep(waitS * 1000 + 500);
             continue;

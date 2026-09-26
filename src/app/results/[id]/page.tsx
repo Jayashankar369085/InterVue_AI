@@ -9,7 +9,8 @@ import {
   Target, MessageSquare, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Report } from "@/types/interview";
+import { fetchJson, isTransientFailure } from "@/lib/http";
+import type { Interview, Report } from "@/types/interview";
 
 const verdictStyles = (v: string) =>
   v === "Strong"
@@ -115,26 +116,43 @@ export default function ResultsPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        // Try the stored report first; if absent, generate it now.
-        let res = await fetch(`/api/interviews/${id}/report`);
-        if (res.status === 404) {
-          res = await fetch(`/api/interviews/${id}/report`, { method: "POST" });
+      // Try the stored report first; if absent, generate it now (LLM-bound —
+      // can take tens of seconds). One retry covers transient platform
+      // timeouts (Amplify kills long requests with an empty 504 body).
+      for (let attempt = 0; attempt < 2 && !cancelled; attempt++) {
+        let r = await fetchJson<{ interview: Interview; report: Report; generated_with_llm?: boolean }>(
+          `/api/interviews/${id}/report`,
+        );
+        if (r.status === 404) {
+          r = await fetchJson<{ interview: Interview; report: Report; generated_with_llm?: boolean }>(
+            `/api/interviews/${id}/report`,
+            { method: "POST" },
+          );
         }
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Could not load the report.");
         if (cancelled) return;
-        setReport(data.report);
-        setMeta({
-          role: data.interview.blueprint.role,
-          domain: data.interview.blueprint.domain,
-          seniority: data.interview.blueprint.seniority,
-          questions: data.interview.qa.length,
-        });
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load the report.");
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (r.ok && r.data) {
+          setReport(r.data.report);
+          setMeta({
+            role: r.data.interview.blueprint.role,
+            domain: r.data.interview.blueprint.domain,
+            seniority: r.data.interview.blueprint.seniority,
+            questions: r.data.interview.qa.length,
+          });
+          setLoading(false);
+          return;
+        }
+        // 409 = the interview has no evaluated answers to report on — retrying
+        // cannot help. Anything transient (empty body / 502/503/504) gets one retry.
+        if (r.status === 409 || r.status === 400 || !isTransientFailure(r)) {
+          setError(r.error || "Could not load the report.");
+          setLoading(false);
+          return;
+        }
+        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+      if (!cancelled) {
+        setError("The report service timed out. Please reload this page in a moment.");
+        setLoading(false);
       }
     })();
     return () => {
@@ -145,10 +163,9 @@ export default function ResultsPage() {
   async function startPractice() {
     setStartingPractice(true);
     try {
-      const res = await fetch(`/api/interviews/${id}/practice`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not create the practice session.");
-      window.location.href = `/interview/${data.id}`;
+      const r = await fetchJson<{ id: string }>(`/api/interviews/${id}/practice`, { method: "POST" });
+      if (!r.ok || !r.data) throw new Error(r.error || "Could not create the practice session.");
+      window.location.href = `/interview/${r.data.id}`;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the practice session.");
       setStartingPractice(false);

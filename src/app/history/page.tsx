@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Loader2, Plus, ArrowRight } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import { cn } from "@/lib/utils";
+import { fetchJson } from "@/lib/http";
 
 type Row = {
   id: string;
@@ -29,13 +30,8 @@ export default function HistoryPage() {
 
   useEffect(() => {
     (async () => {
-      try {
-        const res = await fetch("/api/interviews/list");
-        const data = await res.json();
-        setRows(data.interviews ?? []);
-      } catch {
-        setRows([]);
-      }
+      const res = await fetchJson<{ interviews?: Row[] }>("/api/interviews/list");
+      setRows(res.data?.interviews ?? []);
     })();
   }, []);
 

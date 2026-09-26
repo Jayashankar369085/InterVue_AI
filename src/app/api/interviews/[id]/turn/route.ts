@@ -76,6 +76,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     let evaluation: Evaluation;
     let reply = "";
     let isFollowUp = false;
+    let degraded = false;
+    let degradedReason: string | undefined = undefined;
 
     if (phase === "WARMUP") {
       // Greeting answered → invite the self-intro. No LLM call needed.
@@ -95,6 +97,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       evaluation = result.evaluation ?? warmupEvaluation();
       reply = result.reply;
       isFollowUp = result.isFollowUp;
+      degraded = result.degraded;
+      degradedReason = result.degradedReason;
     }
 
     // -------- 2. Atomically apply the turn to persisted state --------
@@ -198,7 +202,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       evaluation: updated.interview_phase === "WARMUP" || updated.interview_phase === "SELF_INTRO" ? null : evaluation,
       reply: spokenReply,
       interview_complete: updated.status === "completed",
+      degraded,
+      degraded_reason: degradedReason,
     };
+    if (degraded) console.warn(`[turn] degraded reply served (demo=${isDemoMode()}): ${degradedReason ?? "unknown"}`);
     return NextResponse.json(response);
   } catch (err) {
     console.error("[turn] failed:", err);

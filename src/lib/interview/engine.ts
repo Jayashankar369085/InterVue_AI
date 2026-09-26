@@ -188,7 +188,16 @@ export type TurnResult = {
   reply: string;
   interviewComplete: boolean;
   isFollowUp: boolean;
+  /** True when the real LLM was unavailable/timed out and the reply came from
+   *  heuristics/canned fallbacks. The turn route surfaces this to the client so
+   *  production never silently degrades to a questionnaire. */
+  degraded: boolean;
+  /** Human-readable reason for the degradation, when degraded. */
+  degradedReason?: string;
 };
+
+const ANSWER_SLICE = 1500; // keep the evaluator prompt inside its live deadline
+const HISTORY_TURNS = 4; // recent turns sent as context (repetition guard)
 
 /** Server-side heuristic evaluation used in demo mode or when the LLM fails. */
 function heuristicEvaluation(interview: Interview, answer: string, competency: string, challenge: boolean): Evaluation {
@@ -257,6 +266,8 @@ export async function runEvaluationTurn(
   const demo = demoMode || !answer.trim();
   let evaluation: Evaluation | null = null;
 
+  let llmFailed = false;
+  let llmFailureReason = "";
   if (!demo) {
     evaluation = await generateJson<Evaluation>({
       system: EVALUATOR_SYSTEM_PROMPT,
@@ -265,7 +276,7 @@ export async function runEvaluationTurn(
         question: currentQuestion,
         competency: lastCompetency,
         answer,
-        recentHistory: interview.qa.slice(-6).map((e) => ({
+        recentHistory: interview.qa.slice(-HISTORY_TURNS).map((e) => ({
           question: e.question,
           answer: e.answer,
           overall: e.evaluation?.scores?.overall ?? null,
@@ -284,11 +295,17 @@ export async function runEvaluationTurn(
       temperature: 0.7,
     });
     if (evaluation && !evaluation?.scores?.overall && !evaluation?.next_question_text) evaluation = null;
+    if (!evaluation) {
+      llmFailed = true;
+      llmFailureReason = "The AI evaluator did not respond in time (model overload or rate limit).";
+      console.error("[engine] evaluator LLM unavailable — turn would degrade to canned fallback.");
+    }
   }
 
   if (!evaluation) {
     evaluation = heuristicEvaluation(interview, answer, lastCompetency, challenge);
   }
+  const degraded = llmFailed || demo;
 
   // --- validate & clamp the evaluation ---
   const clamp10 = (n: unknown, d = 5) => {
@@ -350,7 +367,14 @@ export async function runEvaluationTurn(
     reply = reply.replace(/^(interviewer|ai)\s*:\s*/i, "").trim();
   }
 
-  return { evaluation: { ...evaluation, scores, next_action: nextAction }, reply, interviewComplete, isFollowUp: nextAction === "ASK_FOLLOW_UP" || nextAction === "PROBE_WEAKNESS" };
+  return {
+    evaluation: { ...evaluation, scores, next_action: nextAction },
+    reply,
+    interviewComplete,
+    isFollowUp: nextAction === "ASK_FOLLOW_UP" || nextAction === "PROBE_WEAKNESS",
+    degraded,
+    degradedReason: degraded ? llmFailureReason || "Running in demo mode (no LLM key configured)." : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +420,7 @@ export async function generateFinalReport(interview: Interview, demoMode: boolea
                 misconceptions: e.evaluation.misconceptions,
               }
             : {}),
-        })),
+        })).map((e) => ({ ...e, answer: e.answer.slice(0, ANSWER_SLICE) })),
         indicators: interview.communication_indicators,
         durationMinutes,
       }),
@@ -406,7 +430,11 @@ export async function generateFinalReport(interview: Interview, demoMode: boolea
   }
 
   if (!report) {
+    console.error("[engine] reporter LLM unavailable — serving deterministic per-answer-evaluation fallback report.");
     report = buildFallbackReport(interview, durationMinutes);
+    // Label it honestly instead of presenting heuristic scoring as AI analysis.
+    report.headline = report.headline || "Report generated from per-answer evaluations";
+    report.summary = `${report.summary} (Generated without the AI reporter — the LLM was unavailable when this report was created.)`;
   }
 
   // Normalize & guarantee required fields.
