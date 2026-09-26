@@ -79,6 +79,12 @@ export default function InterviewPage() {
   const reconnectRef = useRef({ attempts: 0, wanted: false });
   const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ttsVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  // ---- ElevenLabs interviewer TTS (server route, browser-speech fallback) ----
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsAbortRef = useRef<AbortController | null>(null);
+  const ttsPlayingRef = useRef(false);
+  const ttsAudioCtxRef = useRef<AudioContext | null>(null);
+  const analyserPlaybackRef = useRef<AnalyserNode | null>(null);
   const currentAiTextRef = useRef("");
   const echoGuardUntilRef = useRef(0);
 
@@ -107,7 +113,7 @@ export default function InterviewPage() {
     };
   }, []);
 
-  const speak = useCallback(
+  const speakWithBrowserTts = useCallback(
     (text: string, onDone?: () => void) => {
       currentAiTextRef.current = text;
       setPhaseBoth("SPEAKING");
@@ -138,6 +144,125 @@ export default function InterviewPage() {
       synth.speak(u);
     },
     [setPhaseBoth]
+  );
+
+  // ---- ElevenLabs interviewer voice --------------------------------------
+  const stopElevenLabsPlayback = useCallback(() => {
+    ttsPlayingRef.current = false;
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause();
+      ttsAudioRef.current = null;
+    }
+    if (ttsAbortRef.current) {
+      ttsAbortRef.current.abort();
+      ttsAbortRef.current = null;
+    }
+  }, []);
+
+  /** Barge-in: stop both audio paths immediately. */
+  const cancelInterviewerSpeech = useCallback(() => {
+    stopElevenLabsPlayback();
+    window.speechSynthesis?.cancel();
+  }, [stopElevenLabsPlayback]);
+
+  const speakWithElevenLabs = useCallback(
+    async (text: string, onDone?: () => void) => {
+      // The mic send path is already gated on phaseRef === "SPEAKING"; route
+      // aborts keep our own cancel from aborting a page navigation.
+      ttsPlayingRef.current = true;
+      try {
+        ttsAbortRef.current = new AbortController();
+        const res = await fetch("/api/voice/interviewer-tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+          signal: ttsAbortRef.current.signal,
+        });
+        if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
+        const blob = await res.blob();
+        if (!ttsPlayingRef.current) return; // cancelled while fetching
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        ttsAudioRef.current = audio;
+        // Tap playback into an analyser so the orb reacts to real speech.
+        try {
+          const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+          if (Ctx) {
+            const pctx = ttsAudioCtxRef.current ?? new Ctx();
+            ttsAudioCtxRef.current = pctx;
+            if (pctx.state === "suspended") await pctx.resume().catch(() => {});
+            const src = pctx.createMediaElementSource(audio);
+            const an = pctx.createAnalyser();
+            an.fftSize = 256;
+            an.smoothingTimeConstant = 0.75;
+            src.connect(an);
+            an.connect(pctx.destination);
+            analyserPlaybackRef.current = an;
+          }
+        } catch {
+          analyserPlaybackRef.current = null;
+        }
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          URL.revokeObjectURL(url);
+          ttsPlayingRef.current = false;
+          analyserPlaybackRef.current = null;
+          // Guard window: ignore transcripts right after TTS so speaker echo is
+          // not captured as a user answer.
+          echoGuardUntilRef.current = Date.now() + 1100;
+          onDone?.();
+        };
+        audio.onended = finish;
+        audio.onerror = finish;
+        setTimeout(finish, Math.min(60000, 6000 + text.length * 90));
+        await audio.play().catch(() => {
+          // Autoplay was blocked or playback failed — fall back gracefully.
+          analyserPlaybackRef.current = null;
+          ttsPlayingRef.current = false;
+          speakWithBrowserTts(text, onDone);
+        });
+      } catch {
+        // ElevenLabs route failed (unconfigured, 5xx, network) — the interview
+        // continues with the browser voice. The text is always shown either way.
+        ttsPlayingRef.current = false;
+        speakWithBrowserTts(text, onDone);
+      }
+    },
+    [speakWithBrowserTts]
+  );
+
+  /** Speak interviewer text: ElevenLabs first, browser TTS on any failure. */
+  const speak = useCallback(
+    (text: string, onDone?: () => void) => {
+      currentAiTextRef.current = text;
+      setPhaseBoth("SPEAKING");
+      // settle-once: whether the ElevenLabs path, the browser fallback, or the
+      // stall safety-net wins the race, onDone fires exactly once.
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        echoGuardUntilRef.current = Date.now() + 1100;
+        onDone?.();
+      };
+      const hasKey = Boolean(process.env.NEXT_PUBLIC_HAS_INTERVIEWER_VOICE);
+      if (!hasKey) {
+        speakWithBrowserTts(text, settle);
+        return;
+      }
+      void speakWithElevenLabs(text, settle);
+      // Safety net: if the ElevenLabs path stalls entirely (no error, no end),
+      // release the UI with the browser voice so the interview cannot hang.
+      setTimeout(() => {
+        if (ttsPlayingRef.current) {
+          stopElevenLabsPlayback();
+          speakWithBrowserTts(text, settle);
+        }
+      }, 25000);
+    },
+    [setPhaseBoth, speakWithElevenLabs, speakWithBrowserTts, stopElevenLabsPlayback]
   );
 
   // ------------------------- answer submission ------------------------------
@@ -310,7 +435,7 @@ export default function InterviewPage() {
           if (msg.type === "Turn") handleTurnMessage(msg);
           else if (msg.type === "SpeechStarted") {
             if (phaseRef.current === "SPEAKING" && !submittingRef.current) {
-              window.speechSynthesis?.cancel();
+              cancelInterviewerSpeech();
               setPhaseBoth("LISTENING");
             }
             cancelPendingSubmit();
@@ -353,7 +478,7 @@ export default function InterviewPage() {
       );
       return false;
     }
-  }, [handleTurnMessage, sendJson, setPhaseBoth, cancelPendingSubmit]);
+  }, [handleTurnMessage, sendJson, setPhaseBoth, cancelPendingSubmit, cancelInterviewerSpeech]);
 
   const startAudioCapture = useCallback(async (): Promise<boolean> => {
     try {
@@ -590,7 +715,7 @@ export default function InterviewPage() {
     endedRef.current = true;
     setPhaseBoth("ENDED");
     closeVoice();
-    window.speechSynthesis?.cancel();
+    cancelInterviewerSpeech();
     if (!interviewRef.current?.qa.length && interviewRef.current?.transcript.length) {
       // Nothing was answered; confirm before generating an empty report.
       const ok = window.confirm("No answers were recorded yet. End anyway and go to results?");
@@ -601,7 +726,7 @@ export default function InterviewPage() {
       }
     }
     router.push(`/results/${interviewIdRef.current}`);
-  }, [closeVoice, router]);
+  }, [closeVoice, router, cancelInterviewerSpeech]);
 
   useEffect(() => {
     const onUnload = () => closeVoice();
@@ -609,15 +734,16 @@ export default function InterviewPage() {
     return () => window.removeEventListener("pagehide", onUnload);
   }, [closeVoice]);
 
-  // Mic level loop → drives the orb's listening animation with real audio.
+  // Mic/playback level loop → drives the orb with real audio: mic RMS while
+  // listening, the interviewer's actual speech amplitude while speaking.
   useEffect(() => {
-    if (phase !== "LISTENING") {
+    if (phase !== "LISTENING" && phase !== "SPEAKING") {
       setMicLevel(0);
       return;
     }
     let raf = 0;
     const tick = () => {
-      const analyser = analyserRef.current;
+      const analyser = phase === "SPEAKING" ? analyserPlaybackRef.current : analyserRef.current;
       if (analyser) {
         const buf = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteTimeDomainData(buf);
@@ -627,6 +753,12 @@ export default function InterviewPage() {
           sum += v * v;
         }
         setMicLevel(Math.min(1, Math.sqrt(sum / buf.length) * 4));
+      } else if (phase === "SPEAKING") {
+        // No playback analyser (fallback TTS): synthesize a natural speech-like
+        // envelope so the speaking orb still feels alive.
+        const t = performance.now() / 1000;
+        const envelope = 0.35 + 0.3 * Math.sin(t * 5.3) * Math.sin(t * 2.1) + 0.15 * Math.sin(t * 9.7);
+        setMicLevel(Math.max(0.08, Math.min(1, envelope)));
       }
       raf = requestAnimationFrame(tick);
     };

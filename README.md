@@ -38,7 +38,9 @@ InterVue AI is an adaptive, real-time voice interview platform. It goes beyond a
    Copy `.env.local.example` to `.env.local` and add your keys:
    ```env
    ASSEMBLYAI_API_KEY=your_key_here
-   LLM_API_KEY=your_gemini_key_here
+   GROQ_API_KEY=your_groq_key_here      # interview brain (primary LLM)
+   ELEVENLABS_API_KEY=your_elevenlabs_key_here  # interviewer voice
+   LLM_API_KEY=your_gemini_key_here     # optional legacy fallback
    NEXT_PUBLIC_DEMO_MODE=true
    ```
    For local DynamoDB testing (optional), also set `INTERVIEWS_TABLE_NAME` and provide AWS credentials via your normal local chain (SSO/profile — never commit keys). Region is taken from `AWS_REGION`/`INTERVIEWS_AWS_REGION` (defaults to `eu-north-1`).

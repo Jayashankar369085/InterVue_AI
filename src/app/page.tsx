@@ -108,7 +108,7 @@ export default function LandingPage() {
 
       <footer className="relative border-t border-line/60 py-8">
         <p className="text-center text-xs text-muted-foreground">
-          InterVerse AI · Built with AssemblyAI voice + Gemini intelligence
+          InterVue AI · Groq intelligence · AssemblyAI hearing · ElevenLabs voice
         </p>
       </footer>
     </div>

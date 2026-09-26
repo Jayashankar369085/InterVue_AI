@@ -12,7 +12,6 @@
     "@aws-sdk/client-dynamodb": "^3.1138.0",
     "@aws-sdk/lib-dynamodb": "^3.1138.0",
     "@base-ui/react": "^1.8.0",
-    "@google/genai": "^2.22.0",
     "@supabase/supabase-js": "^2.116.0",
     "assemblyai": "^4.41.1",
     "class-variance-authority": "^0.7.1",

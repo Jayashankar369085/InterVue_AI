@@ -1,19 +1,21 @@
 // ---------------------------------------------------------------------------
 // InterVue AI — LLM plumbing. One thin, JSON-safe client used by all agents.
+// Provider: Groq (OpenAI-compatible chat completions, JSON mode) — chosen over
+// Gemini for its far higher free-tier rate limits and much lower latency,
+// which is what keeps live interview turns adaptive instead of falling back
+// to canned questions when a deadline blows.
 // ---------------------------------------------------------------------------
 
-import { GoogleGenAI } from "@google/genai";
 import type { InterviewBlueprint } from "@/types/interview";
 
-// Evergreen alias — always points at Google's current flash model, so the key
-// never breaks when a specific model version is retired (as gemini-2.5-flash was).
-// Override with LLM_MODEL in .env.local if you want to pin a specific version.
-export const MODEL = process.env.LLM_MODEL?.trim() || "gemini-flash-latest";
+// openai/gpt-oss-120b: Groq production model, ~500 t/s, structured-output/JSON
+// mode, strong instruction following — the best speed/quality balance for
+// evaluation + adaptive question writing. gpt-oss-20b (~1000 t/s) is the
+// speed fallback. Llama models are Enterprise-plan on Groq, so GPT-OSS is the
+// right ladder for free-tier keys. Pin a different model with LLM_MODEL.
+export const MODEL = process.env.LLM_MODEL?.trim() || "openai/gpt-oss-120b";
 
-// Fallback ladder used when the primary model is overloaded (503) or rate-limited.
-// Free-tier keys get tiny per-model daily pools, so the ladder walks quality down
-// (flash → flash-lite) before ever degrading a live interview to heuristics.
-const MODEL_LADDER = [MODEL, "gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite"].filter(
+const MODEL_LADDER = [MODEL, "openai/gpt-oss-20b"].filter(
   (m, i, arr) => m && arr.indexOf(m) === i
 ) as string[];
 
@@ -21,12 +23,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function isTransientLlmError(err: unknown): boolean {
   const msg = String((err as Error)?.message ?? err);
-  return /\b(429|503|500)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand/i.test(msg);
+  return /\b(429|503|500)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand|rate limit/i.test(msg);
 }
 
-// Gemini's free tier allows only ~5 requests/min per model. Once a model returns
-// 429 RESOURCE_EXHAUSTED with a long retryDelay, hammering it wastes seconds of a
-// live interview — so record a per-model cooldown and let the ladder route around it.
+// Groq's free tier is generous (dozens of req/min vs Gemini's 5) but rate-limit
+// errors still happen — record a per-model cooldown and let the ladder route around it.
 const modelCooldowns = new Map<string, number>(); // model → epoch ms until which it should be skipped
 
 /**
@@ -45,15 +46,15 @@ export function truncatePromptPayload(prompt: string): string {
   return prompt.slice(0, 16_000) + "\n[Prompt truncated to fit the live-interview time budget]";
 }
 
-/** Extract the "retry in Xs" delay (seconds) from a Google quota error message. */
+/** Extract a retry hint (seconds) from a rate-limit error message, when present. */
 function retryDelaySeconds(err: unknown): number {
   const msg = String((err as Error)?.message ?? err);
-  const m = msg.match(/retry(?:\s+in)?\s+([\d.]+)\s*s/i) ?? msg.match(/retryDelay":"?(\d+)s/i);
-  return m ? Number(m[1]) : 60;
+  const m = msg.match(/try again in\s+([\d.]+)\s*s/i) ?? msg.match(/retry(?:\s+in)?\s+([\d.]+)\s*s/i);
+  return m ? Number(m[1]) : 30;
 }
 
 export function getApiKey(): string | null {
-  const key = process.env.LLM_API_KEY || process.env.GEMINI_API_KEY || "";
+  const key = process.env.GROQ_API_KEY || process.env.LLM_API_KEY || "";
   return key.trim() ? key.trim() : null;
 }
 
@@ -102,6 +103,46 @@ export function parseJsonLoose<T = unknown>(text: string): T | null {
   return null;
 }
 
+type GroqChatCompletion = {
+  choices?: { message?: { content?: string | null } }[];
+};
+
+async function groqChat(model: string, apiKey: string, opts: GenOpts, timeoutMs: number): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: opts.system },
+          { role: "user", content: truncatePromptPayload(opts.user) },
+        ],
+        response_format: { type: "json_object" },
+        temperature: opts.temperature ?? 0.8,
+        max_tokens: opts.maxTokens ?? 2048,
+        ...(MODEL.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {}),
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Groq HTTP ${res.status}: ${body.slice(0, 300)}`);
+    }
+    const data = (await res.json()) as GroqChatCompletion;
+    const text = data.choices?.[0]?.message?.content ?? "";
+    if (!text) throw new Error("empty LLM response");
+    return text;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Ask the LLM for a JSON object. Returns null on any failure (caller falls back to demo). */
 export async function generateJson<T = Record<string, unknown>>(opts: GenOpts): Promise<T | null> {
   const apiKey = getApiKey();
@@ -116,9 +157,8 @@ export async function generateJson<T = Record<string, unknown>>(opts: GenOpts): 
   const PER_ATTEMPT_MS = opts.patient ? 20_000 : 8_500;
   const deadline = Date.now() + BUDGET_MS;
   try {
-    const ai = new GoogleGenAI({ apiKey });
     let lastErr: unknown = null;
-    // Walk the model ladder with retries so a transient 503 on one model
+    // Walk the model ladder with retries so a transient failure on one model
     // doesn't degrade a live interview to demo heuristics. Models on quota
     // cooldown are skipped until their window expires.
     for (const model of MODEL_LADDER) {
@@ -128,25 +168,12 @@ export async function generateJson<T = Record<string, unknown>>(opts: GenOpts): 
       for (let attempt = 0; attempt < 2; attempt++) {
         if (Date.now() >= deadline) break;
         try {
-          const response = await Promise.race([
-            ai.models.generateContent({
-              model,
-              // Truncation guard: oversized payloads (long answers + history) are
-              // the #1 cause of per-attempt timeouts on live turns.
-              contents: [{ role: "user", parts: [{ text: truncatePromptPayload(opts.user) }] }],
-              config: {
-                systemInstruction: opts.system,
-                responseMimeType: "application/json",
-                temperature: opts.temperature ?? 0.8,
-                maxOutputTokens: opts.maxTokens ?? 2048,
-              },
-            }),
-            sleep(Math.min(PER_ATTEMPT_MS, Math.max(1, deadline - Date.now()))).then(() => {
+          const text = await Promise.race([
+            groqChat(model, apiKey, opts, Math.min(PER_ATTEMPT_MS, Math.max(1, deadline - Date.now()))),
+            sleep(Math.min(PER_ATTEMPT_MS + 500, Math.max(1, deadline - Date.now()))).then(() => {
               throw new Error(`LLM attempt timed out after ${PER_ATTEMPT_MS / 1000}s`);
             }),
           ]);
-          const text = response.text;
-          if (!text) throw new Error("empty LLM response");
           const parsed = parseJsonLoose<T>(text);
           if (!parsed) throw new Error("unparseable LLM JSON");
           modelCooldowns.delete(model);
@@ -154,8 +181,8 @@ export async function generateJson<T = Record<string, unknown>>(opts: GenOpts): 
         } catch (err) {
           lastErr = err;
           const transient = isTransientLlmError(err);
-          if (transient && /429|RESOURCE_EXHAUSTED|quota/i.test(String((err as Error)?.message ?? err))) {
-            // Quota window — park this model for the requested delay.
+          if (transient && /429|RESOURCE_EXHAUSTED|quota|rate limit/i.test(String((err as Error)?.message ?? err))) {
+            // Rate-limit window — park this model for the requested delay.
             const waitS = retryDelaySeconds(err);
             modelCooldowns.set(model, Date.now() + Math.min(waitS, 90) * 1000);
             const maxWait = opts.patient ? 20_000 : 4_000;

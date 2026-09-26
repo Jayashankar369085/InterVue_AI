@@ -410,87 +410,6 @@
   .animate-spin-slow {
     animation: spin-slow 6s linear infinite;
   }
-
-  /* ==========================================================================
-     VOICE ORB — states keyed by phase classes applied from React.
-     ========================================================================== */
-  .orb-core {
-    transform-origin: center;
-    transform-box: fill-box;
-    transition: transform 0.18s ease-out;
-  }
-  .orb-core-listen {
-    animation: orb-breathe 3.2s ease-in-out infinite;
-  }
-  .orb-core-think {
-    animation: orb-think-spin 2.4s linear infinite;
-  }
-  .orb-core-speak {
-    animation: orb-speak 0.75s ease-in-out infinite alternate;
-  }
-  @keyframes orb-breathe {
-    0%,
-    100% {
-      transform: scale(1);
-    }
-    50% {
-      transform: scale(1.04);
-    }
-  }
-  @keyframes orb-speak {
-    0% {
-      transform: scale(0.97);
-    }
-    100% {
-      transform: scale(1.07);
-    }
-  }
-  @keyframes orb-think-spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-  .orb-think {
-    transform-origin: center;
-    transform-box: fill-box;
-    animation: orb-think-spin 2.4s linear infinite;
-  }
-  .orb-ring-listen {
-    animation: orb-ring-listen 3.2s ease-in-out infinite;
-  }
-  @keyframes orb-ring-listen {
-    0%,
-    100% {
-      opacity: 0.35;
-    }
-    50% {
-      opacity: 0.8;
-    }
-  }
-  .orb-ring-speak {
-    animation: orb-ring-speak 1.6s ease-out infinite;
-  }
-  @keyframes orb-ring-speak {
-    0% {
-      transform: scale(1);
-      opacity: 0.7;
-    }
-    100% {
-      transform: scale(1.28);
-      opacity: 0;
-    }
-  }
-  .orb-ring-think {
-    animation: orb-ring-listen 1.6s ease-in-out infinite;
-  }
-  @keyframes orb-bar {
-    0% {
-      transform: scaleY(0.4);
-    }
-    100% {
-      transform: scaleY(1);
-    }
-  }
 }
 
 /* Respect reduced motion globally. */
@@ -504,3 +423,95 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   VoiceOrb — polished AI-interviewer visualization.
+   All motion is transform/opacity only (GPU-cheap, no layout thrash). Rings
+   expand via scale, never radius, so the animation stays perfectly symmetrical.
+   --------------------------------------------------------------------------- */
+
+.vorb-ring {
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
+}
+
+/* Sonar pulse: ring scales outward and fades — restarts from center each cycle. */
+@keyframes vorb-pulse {
+  0% {
+    transform: scale(0.55);
+    opacity: 0;
+    animation-timing-function: ease-out;
+  }
+  18% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.08);
+    opacity: 0;
+  }
+}
+
+.vorb-ring-a { animation: vorb-pulse 2.8s ease-out infinite; }
+.vorb-ring-b { animation: vorb-pulse 2.8s ease-out 1.4s infinite; }
+.vorb-ring-c { animation: vorb-pulse 2.8s ease-out 2.1s infinite; }
+
+.vorb-ring-fast { animation-duration: 1.6s; }
+.vorb-ring-slow { animation-duration: 3.6s; }
+
+/* Thinking: rings stay put and shimmer instead of pulsing. */
+.vorb-ring-shimmer { animation: vorb-shimmer 2.4s ease-in-out infinite; }
+@keyframes vorb-shimmer {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.8; }
+}
+
+/* Gradient core — gentle scale motion per phase. */
+.vorb-core {
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+.vorb-core-listen {
+  animation: vorb-breathe 3.4s ease-in-out infinite;
+}
+.vorb-core-speak {
+  animation: vorb-speak 0.9s ease-in-out infinite alternate;
+}
+.vorb-core-think {
+  animation: vorb-think-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes vorb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+@keyframes vorb-speak {
+  from { transform: scale(0.97); }
+  to { transform: scale(1.06); }
+}
+@keyframes vorb-think-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.92; }
+  50% { transform: scale(1.02); opacity: 1; }
+}
+
+/* Thinking orbiters. */
+.vorb-think {
+  transform-origin: 50% 50%;
+  animation: vorb-rotate 2.6s linear infinite;
+}
+.vorb-think-rev {
+  transform-origin: 50% 50%;
+  animation: vorb-rotate 3.4s linear infinite reverse;
+}
+@keyframes vorb-rotate {
+  to { transform: rotate(360deg); }
+}
+
+/* Ambient halo breathing per phase (opacity-only). */
+.vorb-glow-listen { animation: vorb-glow 3.4s ease-in-out infinite; }
+.vorb-glow-think { animation: vorb-glow 2.2s ease-in-out infinite; }
+.vorb-glow-idle { animation: vorb-glow 5s ease-in-out infinite; }
+@keyframes vorb-glow {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.8; }
+}
+
