@@ -54,6 +54,9 @@ export default function InterviewPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [livePartial, setLivePartial] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Which voice pipeline actually served the interviewer (shown in the UI):
+  // "elevenlabs" | "browser" (fallback voice) | "unavailable" (muted UI).
+  const [voiceSource, setVoiceSource] = useState<"elevenlabs" | "browser" | "unavailable">("elevenlabs");
   const [voiceStatus, setVoiceStatus] = useState<"off" | "connecting" | "open" | "failed">("off");
   const [muted, setMuted] = useState(false);
   const [textInput, setTextInput] = useState("");
@@ -84,9 +87,18 @@ export default function InterviewPage() {
   const ttsAbortRef = useRef<AbortController | null>(null);
   const ttsPlayingRef = useRef(false);
   const ttsAudioCtxRef = useRef<AudioContext | null>(null);
+  // Briefly holds a context created without a user gesture (autoplay-blocked);
+  // it is only promoted once the mic's gesture-created context is available.
+  const ttsCtxNeverRef = useRef<AudioContext | null>(null);
   const analyserPlaybackRef = useRef<AnalyserNode | null>(null);
   const currentAiTextRef = useRef("");
   const echoGuardUntilRef = useRef(0);
+  // Monotonic epoch: only the newest speak() call may touch shared audio
+  // state or fire its settle callback — prevents overlapping/interrupted lines.
+  const ttsEpochRef = useRef(0);
+  // Set once when the browser refuses audio playback (autoplay/codec); while
+  // set, we stop requesting ElevenLabs audio the user cannot hear.
+  const playbackBlockedRef = useRef(false);
 
   const setPhaseBoth = useCallback((p: Phase) => {
     phaseRef.current = p;
@@ -170,6 +182,7 @@ export default function InterviewPage() {
       // The mic send path is already gated on phaseRef === "SPEAKING"; route
       // aborts keep our own cancel from aborting a page navigation.
       ttsPlayingRef.current = true;
+      const myEpoch = ++ttsEpochRef.current;
       try {
         ttsAbortRef.current = new AbortController();
         const res = await fetch("/api/voice/interviewer-tts", {
@@ -179,29 +192,54 @@ export default function InterviewPage() {
           signal: ttsAbortRef.current.signal,
         });
         if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
-        // Voice actually used (primary or free-plan fallback) — observable in devtools.
+        // Voice actually used (primary or free-plan fallback) — shown in the UI.
         const usedVoice = res.headers.get("X-Interviewer-Voice");
-        if (usedVoice && process.env.NODE_ENV !== "production") console.log(`[tts] interviewer voice: ${usedVoice}`);
+        if (usedVoice && myEpoch === ttsEpochRef.current) {
+          console.log(`[tts] interviewer voice: ${usedVoice}`);
+          setVoiceSource("elevenlabs");
+        }
         const blob = await res.blob();
-        if (!ttsPlayingRef.current) return; // cancelled while fetching
+        if (myEpoch !== ttsEpochRef.current || !ttsPlayingRef.current) return; // superseded/cancelled while fetching
+        if (playbackBlockedRef.current) {
+          // Browser already refused audio once — don't queue unheard requests.
+          ttsPlayingRef.current = false;
+          setVoiceSource("browser");
+          speakWithBrowserTts(text, onDone);
+          return;
+        }
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
         ttsAudioRef.current = audio;
-        // Tap playback into an analyser so the orb reacts to real speech.
-        try {
-          const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-          if (Ctx) {
-            const pctx = ttsAudioCtxRef.current ?? new Ctx();
-            ttsAudioCtxRef.current = pctx;
-            if (pctx.state === "suspended") await pctx.resume().catch(() => {});
-            const src = pctx.createMediaElementSource(audio);
-            const an = pctx.createAnalyser();
-            an.fftSize = 256;
-            an.smoothingTimeConstant = 0.75;
-            src.connect(an);
-            an.connect(pctx.destination);
-            analyserPlaybackRef.current = an;
+        // If the browser cannot play this audio (autoplay block, decode
+        // failure), defer this line to the browser voice — keep talking.
+        const deferToBrowser = () => {
+          URL.revokeObjectURL(url);
+          if (myEpoch === ttsEpochRef.current) {
+            analyserPlaybackRef.current = null;
+            ttsPlayingRef.current = false;
+            setVoiceSource("browser");
+            speakWithBrowserTts(text, onDone);
           }
+        };
+        // Tap playback into an analyser so the orb reacts to real speech. The
+        // context is taken from the mic capture (created inside a user gesture,
+        // so autoplay-unlocked); a fresh context is only a temporary stand-in.
+        try {
+          const pctx =
+            ttsAudioCtxRef.current ??
+            ttsCtxNeverRef.current ??
+            new (window.AudioContext ??
+              (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext!)();
+          if (pctx === ttsCtxNeverRef.current) ttsCtxNeverRef.current = null;
+          ttsAudioCtxRef.current = pctx;
+          if (pctx.state === "suspended") await pctx.resume().catch(() => {});
+          const src = pctx.createMediaElementSource(audio);
+          const an = pctx.createAnalyser();
+          an.fftSize = 256;
+          an.smoothingTimeConstant = 0.75;
+          src.connect(an);
+          an.connect(pctx.destination);
+          analyserPlaybackRef.current = an;
         } catch {
           analyserPlaybackRef.current = null;
         }
@@ -217,19 +255,30 @@ export default function InterviewPage() {
           echoGuardUntilRef.current = Date.now() + 1100;
           onDone?.();
         };
-        audio.onended = finish;
-        audio.onerror = finish;
-        setTimeout(finish, Math.min(60000, 6000 + text.length * 90));
-        await audio.play().catch(() => {
-          // Autoplay was blocked or playback failed — fall back gracefully.
+        audio.onended = () => {
+          if (myEpoch === ttsEpochRef.current) finish();
+        };
+        audio.onerror = () => {
+          console.error("[tts] browser audio element error:", audio.error?.code, audio.error?.message ?? "");
+          deferToBrowser();
+        };
+        await audio.play().catch((err) => {
+          // Autoplay was blocked or playback failed — the audio cannot be
+          // heard, so defer this line to the browser voice and stop requesting
+          // ElevenLabs audio until a real gesture unlocks playback.
+          console.warn("[tts] audio.play() blocked/failed — using browser voice for this line:", (err as Error)?.name ?? err);
+          playbackBlockedRef.current = true;
           analyserPlaybackRef.current = null;
-          ttsPlayingRef.current = false;
-          speakWithBrowserTts(text, onDone);
+          deferToBrowser();
         });
-      } catch {
-        // ElevenLabs route failed (unconfigured, 5xx, network) — the interview
-        // continues with the browser voice. The text is always shown either way.
+      } catch (err) {
+        // ElevenLabs path failed (route 5xx, network, abort). The interview
+        // continues with the browser voice; text is always shown either way.
+        if ((err as Error)?.name !== "AbortError") {
+          console.warn("[tts] ElevenLabs path failed — using browser voice:", (err as Error)?.message ?? err);
+        }
         ttsPlayingRef.current = false;
+        if (myEpoch === ttsEpochRef.current) setVoiceSource("browser");
         speakWithBrowserTts(text, onDone);
       }
     },
@@ -252,20 +301,17 @@ export default function InterviewPage() {
       };
       const hasKey = Boolean(process.env.NEXT_PUBLIC_HAS_INTERVIEWER_VOICE);
       if (!hasKey) {
+        setVoiceSource("browser");
         speakWithBrowserTts(text, settle);
         return;
       }
+      setVoiceSource("elevenlabs"); // optimistic; flipped to "browser" on any failure
       void speakWithElevenLabs(text, settle);
-      // Safety net: if the ElevenLabs path stalls entirely (no error, no end),
-      // release the UI with the browser voice so the interview cannot hang.
-      setTimeout(() => {
-        if (ttsPlayingRef.current) {
-          stopElevenLabsPlayback();
-          speakWithBrowserTts(text, settle);
-        }
-      }, 25000);
+      // No external stall timer: route timeouts, play() rejection, audio.onerror
+      // and onended all settle the line. A fixed kill timer would cut off long
+      // questions mid-sentence.
     },
-    [setPhaseBoth, speakWithElevenLabs, speakWithBrowserTts, stopElevenLabsPlayback]
+    [setPhaseBoth, speakWithElevenLabs, speakWithBrowserTts]
   );
 
   // ------------------------- answer submission ------------------------------
@@ -497,6 +543,13 @@ export default function InterviewPage() {
         ctx = new AudioContext();
       }
       audioCtxRef.current = ctx;
+      // The capture context is created inside a user gesture, so it is
+      // autoplay-unlocked — promote it as the playback context as well and
+      // resume any context that was created before a gesture existed.
+      ttsAudioCtxRef.current = ctx;
+      ttsCtxNeverRef.current?.close().catch(() => {});
+      ttsCtxNeverRef.current = null;
+      playbackBlockedRef.current = false;
       if (ctx.state === "suspended") await ctx.resume();
       const source = ctx.createMediaStreamSource(streamRef.current);
       sourceRef.current = source;
@@ -607,6 +660,9 @@ export default function InterviewPage() {
     analyserRef.current = null;
     audioCtxRef.current = null;
     streamRef.current = null;
+    ttsAudioCtxRef.current = null;
+    ttsCtxNeverRef.current = null;
+    analyserPlaybackRef.current = null;
   }, []);
 
   // ----------------------------- lifecycle ---------------------------------
@@ -669,15 +725,20 @@ export default function InterviewPage() {
       }).catch(() => {});
     }
 
+    // Decouple the interviewer's voice from the candidate's mic: getUserMedia
+    // can hang indefinitely (slow permission dialog, virtual devices), and it
+    // must never delay or block the interviewer from speaking. We race the
+    // capture against a grace window — it gets up to 8s to catch up while the
+    // interviewer greets the candidate.
     setPhaseBoth("CONNECTING");
+    const micPromise = startAudioCapture();
+    const micSettled = await Promise.race([
+      micPromise.then(() => true),
+      new Promise((res) => setTimeout(() => res(false), 8000)),
+    ]);
     const voiceOk = await connectVoice();
-    if (!voiceOk) {
-      // No voice: still run the interview over text.
-      setPhaseBoth("LISTENING");
-      return;
-    }
-    const micOk = await startAudioCapture();
-    if (!micOk) {
+    if (!micSettled && !voiceOk) {
+      // Neither mic nor STT is up yet: run the interview over text.
       setPhaseBoth("LISTENING");
       return;
     }
@@ -757,8 +818,8 @@ export default function InterviewPage() {
         }
         setMicLevel(Math.min(1, Math.sqrt(sum / buf.length) * 4));
       } else if (phase === "SPEAKING") {
-        // No playback analyser (fallback TTS): synthesize a natural speech-like
-        // envelope so the speaking orb still feels alive.
+        // No playback analyser (browser-TTS fallback): synthesize a natural
+        // speech-like envelope so the speaking orb still feels alive.
         const t = performance.now() / 1000;
         const envelope = 0.35 + 0.3 * Math.sin(t * 5.3) * Math.sin(t * 2.1) + 0.15 * Math.sin(t * 9.7);
         setMicLevel(Math.max(0.08, Math.min(1, envelope)));
@@ -834,6 +895,20 @@ export default function InterviewPage() {
             )}
             {interview?.mode === "demo" && (
               <span className="rounded-full border border-warning/40 bg-warning-soft px-2 py-1 text-[10px] font-semibold text-warning">DEMO</span>
+            )}
+            {started && phase !== "ENDED" && phase !== "ERROR" && (
+              <span
+                className="hidden rounded-full border border-line bg-surface-2 px-2 py-1 text-[10px] font-medium text-muted-foreground md:inline"
+                title={
+                  voiceSource === "elevenlabs"
+                    ? "Interviewer speaks with ElevenLabs TTS"
+                    : voiceSource === "browser"
+                      ? "ElevenLabs unavailable right now — interviewer is using the browser voice"
+                      : "Interviewer voice is muted"
+                }
+              >
+                Interviewer voice: {voiceSource === "elevenlabs" ? "ElevenLabs" : voiceSource === "browser" ? "browser (fallback)" : "muted"}
+              </span>
             )}
             <span
               className={cn(

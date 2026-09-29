@@ -63,6 +63,10 @@ async function elevenTts(
 
 export async function POST(req: Request) {
   const apiKey = process.env.ELEVENLABS_API_KEY;
+  // Non-secret diagnostics only — never log key values or auth headers.
+  console.log(
+    `[voice/interviewer-tts] key=${apiKey ? "present" : "MISSING"} primary_voice=${INTERVIEWER_VOICE_ID} fallback_voice=${FALLBACK_VOICE_ID}`
+  );
   if (!apiKey) {
     return NextResponse.json(
       { error: "Interviewer voice is not configured on the server (missing ELEVENLABS_API_KEY).", code: "NO_KEY" },
@@ -88,6 +92,9 @@ export async function POST(req: Request) {
     // Primary: the user-selected voice.
     let attempt = await elevenTts(text, apiKey, INTERVIEWER_VOICE_ID);
     let usedFallback = false;
+    console.log(
+      `[voice/interviewer-tts] primary attempt: status=${attempt.ok ? 200 : attempt.status} ct=${attempt.ok ? "audio/mpeg" : "n/a"}`
+    );
     // Fallback: free plans cannot use library voices via the API (402
     // paid_plan_required) — speak with a built-in ElevenLabs voice instead of
     // silence. After a plan upgrade the primary voice simply works again.
@@ -95,6 +102,9 @@ export async function POST(req: Request) {
       console.warn("[voice/interviewer-tts] selected voice unavailable on this plan (402 paid_plan_required); using built-in ElevenLabs voice fallback.");
       attempt = await elevenTts(text, apiKey, FALLBACK_VOICE_ID);
       usedFallback = attempt.ok;
+      console.log(
+        `[voice/interviewer-tts] fallback attempt (${FALLBACK_VOICE_ID}): status=${attempt.ok ? 200 : attempt.status} ct=${attempt.ok ? "audio/mpeg" : "n/a"}`
+      );
     }
     if (!attempt.ok) {
       console.error(`[voice/interviewer-tts] ElevenLabs HTTP ${attempt.status}: ${attempt.detail.slice(0, 200)}`);
@@ -108,6 +118,7 @@ export async function POST(req: Request) {
         "Cache-Control": "no-store",
         // Observable in devtools for verification; contains only a voice ID, no secret.
         "X-Interviewer-Voice": usedFallback ? FALLBACK_VOICE_ID : INTERVIEWER_VOICE_ID,
+        "X-Interviewer-Voice-Source": usedFallback ? "fallback" : "primary",
       },
     });
   } catch (err) {
