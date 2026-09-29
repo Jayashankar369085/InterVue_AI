@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 // The user-selected interviewer voice (existing ElevenLabs library voice).
-export const INTERVIEWER_VOICE_ID = "oClOrzqamOXmtcB8iqTj";
+export const INTERVIEWER_VOICE_ID = "kdmDKE6EkgrWrrykO9Qt";
 
 // ElevenLabs' free plan cannot use library/community voices over the API
 // (upstream 402 paid_plan_required). When the selected voice is unavailable

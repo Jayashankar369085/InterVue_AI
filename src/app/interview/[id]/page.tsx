@@ -99,6 +99,9 @@ export default function InterviewPage() {
   // Set once when the browser refuses audio playback (autoplay/codec); while
   // set, we stop requesting ElevenLabs audio the user cannot hear.
   const playbackBlockedRef = useRef(false);
+  // Human-readable, non-secret reason for the most recent ElevenLabs failure
+  // (shown in the voice chip when we fall back to the browser voice).
+  const ttsFailureRef = useRef<string | null>(null);
 
   const setPhaseBoth = useCallback((p: Phase) => {
     phaseRef.current = p;
@@ -191,7 +194,17 @@ export default function InterviewPage() {
           body: JSON.stringify({ text }),
           signal: ttsAbortRef.current.signal,
         });
-        if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
+        if (!res.ok) {
+          // Non-secret reason from the route (NO_KEY | TTS_FAILED) for the UI chip.
+          const errBody = (await res.json().catch(() => null)) as { code?: string } | null;
+          ttsFailureRef.current =
+            errBody?.code === "NO_KEY"
+              ? "no server key"
+              : errBody?.code === "TTS_FAILED"
+                ? "ElevenLabs unavailable"
+                : `HTTP ${res.status}`;
+          throw new Error(`TTS HTTP ${res.status}`);
+        }
         // Voice actually used (primary or free-plan fallback) — shown in the UI.
         const usedVoice = res.headers.get("X-Interviewer-Voice");
         if (usedVoice && myEpoch === ttsEpochRef.current) {
@@ -202,6 +215,7 @@ export default function InterviewPage() {
         if (myEpoch !== ttsEpochRef.current || !ttsPlayingRef.current) return; // superseded/cancelled while fetching
         if (playbackBlockedRef.current) {
           // Browser already refused audio once — don't queue unheard requests.
+          ttsFailureRef.current = ttsFailureRef.current ?? "audio playback blocked";
           ttsPlayingRef.current = false;
           setVoiceSource("browser");
           speakWithBrowserTts(text, onDone);
@@ -260,6 +274,7 @@ export default function InterviewPage() {
         };
         audio.onerror = () => {
           console.error("[tts] browser audio element error:", audio.error?.code, audio.error?.message ?? "");
+          ttsFailureRef.current = "audio decode error";
           deferToBrowser();
         };
         await audio.play().catch((err) => {
@@ -268,17 +283,23 @@ export default function InterviewPage() {
           // ElevenLabs audio until a real gesture unlocks playback.
           console.warn("[tts] audio.play() blocked/failed — using browser voice for this line:", (err as Error)?.name ?? err);
           playbackBlockedRef.current = true;
+          ttsFailureRef.current = "audio playback blocked";
           analyserPlaybackRef.current = null;
           deferToBrowser();
         });
       } catch (err) {
         // ElevenLabs path failed (route 5xx, network, abort). The interview
         // continues with the browser voice; text is always shown either way.
-        if ((err as Error)?.name !== "AbortError") {
-          console.warn("[tts] ElevenLabs path failed — using browser voice:", (err as Error)?.message ?? err);
+        if ((err as Error)?.name === "AbortError" || myEpoch !== ttsEpochRef.current) {
+          // Barge-in or superseded: the line was deliberately cancelled — do
+          // not resurrect it through the browser voice.
+          ttsPlayingRef.current = false;
+          return;
         }
+        console.warn("[tts] ElevenLabs path failed — using browser voice:", (err as Error)?.message ?? err);
+        ttsFailureRef.current = ttsFailureRef.current ?? "network error";
         ttsPlayingRef.current = false;
-        if (myEpoch === ttsEpochRef.current) setVoiceSource("browser");
+        setVoiceSource("browser");
         speakWithBrowserTts(text, onDone);
       }
     },
@@ -306,6 +327,7 @@ export default function InterviewPage() {
         return;
       }
       setVoiceSource("elevenlabs"); // optimistic; flipped to "browser" on any failure
+      ttsFailureRef.current = null;
       void speakWithElevenLabs(text, settle);
       // No external stall timer: route timeouts, play() rejection, audio.onerror
       // and onended all settle the line. A fixed kill timer would cut off long
@@ -907,7 +929,7 @@ export default function InterviewPage() {
                       : "Interviewer voice is muted"
                 }
               >
-                Interviewer voice: {voiceSource === "elevenlabs" ? "ElevenLabs" : voiceSource === "browser" ? "browser (fallback)" : "muted"}
+                Interviewer voice: {voiceSource === "elevenlabs" ? "ElevenLabs" : voiceSource === "browser" ? `browser (fallback${ttsFailureRef.current ? `: ${ttsFailureRef.current}` : ""})` : "muted"}
               </span>
             )}
             <span
