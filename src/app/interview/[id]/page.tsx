@@ -57,6 +57,10 @@ export default function InterviewPage() {
   // Which voice pipeline actually served the interviewer (shown in the UI):
   // "elevenlabs" | "browser" (fallback voice) | "unavailable" (muted UI).
   const [voiceSource, setVoiceSource] = useState<"elevenlabs" | "browser" | "unavailable">("elevenlabs");
+  // The actual voice ID the server used (X-Interviewer-Voice-Id) and whether
+  // that was the fallback voice — both shown in the header chip.
+  const [voiceIdUsed, setVoiceIdUsed] = useState<string | null>(null);
+  const [voiceIsFallback, setVoiceIsFallback] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<"off" | "connecting" | "open" | "failed">("off");
   const [muted, setMuted] = useState(false);
   const [textInput, setTextInput] = useState("");
@@ -206,9 +210,12 @@ export default function InterviewPage() {
           throw new Error(`TTS HTTP ${res.status}`);
         }
         // Voice actually used (primary or free-plan fallback) — shown in the UI.
-        const usedVoice = res.headers.get("X-Interviewer-Voice");
-        if (usedVoice && myEpoch === ttsEpochRef.current) {
-          console.log(`[tts] interviewer voice: ${usedVoice}`);
+        const usedVoiceId = res.headers.get("X-Interviewer-Voice-Id") ?? res.headers.get("X-Interviewer-Voice");
+        const usedSource = res.headers.get("X-Interviewer-Voice-Source");
+        if (usedVoiceId && myEpoch === ttsEpochRef.current) {
+          console.log(`[tts] interviewer voice: ${usedVoiceId} (${usedSource ?? "unknown"})`);
+          setVoiceIdUsed(usedVoiceId);
+          setVoiceIsFallback(usedSource === "fallback");
           setVoiceSource("elevenlabs");
         }
         const blob = await res.blob();
@@ -929,7 +936,16 @@ export default function InterviewPage() {
                       : "Interviewer voice is muted"
                 }
               >
-                Interviewer voice: {voiceSource === "elevenlabs" ? "ElevenLabs" : voiceSource === "browser" ? `browser (fallback${ttsFailureRef.current ? `: ${ttsFailureRef.current}` : ""})` : "muted"}
+                Interviewer voice:{" "}
+                {voiceSource === "elevenlabs"
+                  ? voiceIsFallback
+                    ? "ElevenLabs fallback"
+                    : "ElevenLabs"
+                  : voiceSource === "browser"
+                    ? "browser fallback"
+                    : "muted"}
+                {voiceSource === "elevenlabs" && voiceIdUsed ? ` · Voice ID: ${voiceIdUsed}` : ""}
+                {voiceSource === "browser" && ttsFailureRef.current ? ` (${ttsFailureRef.current})` : ""}
               </span>
             )}
             <span

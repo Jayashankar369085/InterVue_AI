@@ -23,7 +23,7 @@ frontend:
         # LLM_API_KEY and ASSEMBLYAI_API_KEY are console "Use secrets" entries —
         # values are redirected straight into the env file, never printed to logs.
         # `|| true` so a missing variable can never fail the build (grep exits 1).
-        - env | grep -e INTERVIEWS_TABLE_NAME -e NEXT_PUBLIC_DEMO_MODE -e NEXT_PUBLIC_HAS_INTERVIEWER_VOICE -e LLM_API_KEY -e ASSEMBLYAI_API_KEY -e GROQ_API_KEY -e ELEVENLABS_API_KEY >> .env.production || true
+        - env | grep -e INTERVIEWS_TABLE_NAME -e NEXT_PUBLIC_DEMO_MODE -e NEXT_PUBLIC_HAS_INTERVIEWER_VOICE -e LLM_API_KEY -e ASSEMBLYAI_API_KEY -e GROQ_API_KEY -e ELEVENLABS_API_KEY -e INTERVIEWER_VOICE_ID -e INTERVIEWER_VOICE_ID_FALLBACK >> .env.production || true
         - npm run build
 
   artifacts:

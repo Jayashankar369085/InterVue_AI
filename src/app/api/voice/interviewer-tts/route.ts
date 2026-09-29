@@ -3,6 +3,14 @@
 // interviewer. The API key never leaves the server; the browser receives only
 // the generated audio stream. On any failure the client falls back to the
 // browser's built-in speechSynthesis, so the interview never breaks.
+//
+// Voice selection (in strict priority):
+//   1. INTERVIEWER_VOICE_ID env var          — the configured primary voice
+//   2. INTERVIEWER_VOICE_ID_FALLBACK env var — used ONLY when the primary
+//      voice is rejected by ElevenLabs (e.g. 402 paid_plan_required: free
+//      plans cannot use library voices via the API)
+// The primary voice is ALWAYS attempted first; a successful primary attempt
+// (HTTP 200) means the fallback is never used.
 // ---------------------------------------------------------------------------
 
 import { NextResponse } from "next/server";
@@ -10,14 +18,11 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-// The user-selected interviewer voice (existing ElevenLabs library voice).
-export const INTERVIEWER_VOICE_ID = "kdmDKE6EkgrWrrykO9Qt";
+// Primary interviewer voice. The env var always wins; the constant is only the
+// default when INTERVIEWER_VOICE_ID is not configured.
+const PRIMARY_VOICE_ID = process.env.INTERVIEWER_VOICE_ID?.trim() || "kdmDKE6EkgrWrrykO9Qt";
 
-// ElevenLabs' free plan cannot use library/community voices over the API
-// (upstream 402 paid_plan_required). When the selected voice is unavailable
-// we fall back to a built-in voice so the interviewer still speaks with an
-// ElevenLabs voice today; after a plan upgrade the primary voice works again
-// with no code change. Override with INTERVIEWER_VOICE_ID_FALLBACK if needed.
+// Emergency fallback voice — an ElevenLabs built-in that works on every plan.
 const FALLBACK_VOICE_ID = process.env.INTERVIEWER_VOICE_ID_FALLBACK?.trim() || "JBFqnCBsd6RMkjVDRZzb";
 
 // eleven_flash_v2_5: ElevenLabs' lowest-latency speech model — the right fit
@@ -64,9 +69,7 @@ async function elevenTts(
 export async function POST(req: Request) {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   // Non-secret diagnostics only — never log key values or auth headers.
-  console.log(
-    `[voice/interviewer-tts] key=${apiKey ? "present" : "MISSING"} primary_voice=${INTERVIEWER_VOICE_ID} fallback_voice=${FALLBACK_VOICE_ID}`
-  );
+  console.log(`[voice/interviewer-tts] key=${apiKey ? "present" : "MISSING"} requestedVoice=${PRIMARY_VOICE_ID} fallbackVoice=${FALLBACK_VOICE_ID}`);
   if (!apiKey) {
     return NextResponse.json(
       { error: "Interviewer voice is not configured on the server (missing ELEVENLABS_API_KEY).", code: "NO_KEY" },
@@ -89,36 +92,41 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Primary: the user-selected voice.
-    let attempt = await elevenTts(text, apiKey, INTERVIEWER_VOICE_ID);
-    let usedFallback = false;
-    console.log(
-      `[voice/interviewer-tts] primary attempt: status=${attempt.ok ? 200 : attempt.status} ct=${attempt.ok ? "audio/mpeg" : "n/a"}`
-    );
-    // Fallback: free plans cannot use library voices via the API (402
-    // paid_plan_required) — speak with a built-in ElevenLabs voice instead of
-    // silence. After a plan upgrade the primary voice simply works again.
+    // 1. The configured primary voice — always attempted first.
+    let attempt = await elevenTts(text, apiKey, PRIMARY_VOICE_ID);
+    let usedVoiceId = PRIMARY_VOICE_ID;
+    let source: "primary" | "fallback" = "primary";
+    console.log(`[voice/interviewer-tts] requestedVoice=${PRIMARY_VOICE_ID} status=${attempt.ok ? 200 : attempt.status}`);
+
+    // 2. Only when ElevenLabs rejects the primary voice (402 paid_plan_required:
+    //    free plans cannot use library voices via the API) do we use the
+    //    fallback — explicitly identified, never silently.
     if (!attempt.ok && attempt.status === 402) {
-      console.warn("[voice/interviewer-tts] selected voice unavailable on this plan (402 paid_plan_required); using built-in ElevenLabs voice fallback.");
+      console.warn(`[voice/interviewer-tts] primary voice unavailable (402 paid_plan_required) for voice=${PRIMARY_VOICE_ID}; using fallbackVoice=${FALLBACK_VOICE_ID}`);
       attempt = await elevenTts(text, apiKey, FALLBACK_VOICE_ID);
-      usedFallback = attempt.ok;
-      console.log(
-        `[voice/interviewer-tts] fallback attempt (${FALLBACK_VOICE_ID}): status=${attempt.ok ? 200 : attempt.status} ct=${attempt.ok ? "audio/mpeg" : "n/a"}`
-      );
+      console.log(`[voice/interviewer-tts] requestedVoice=${FALLBACK_VOICE_ID} status=${attempt.ok ? 200 : attempt.status}`);
+      if (attempt.ok) {
+        usedVoiceId = FALLBACK_VOICE_ID;
+        source = "fallback";
+      }
     }
+
     if (!attempt.ok) {
-      console.error(`[voice/interviewer-tts] ElevenLabs HTTP ${attempt.status}: ${attempt.detail.slice(0, 200)}`);
+      console.error(`[voice/interviewer-tts] ElevenLabs HTTP ${attempt.status} for voice=${usedVoiceId}: ${attempt.detail.slice(0, 200)}`);
       return NextResponse.json({ error: "Interviewer voice is temporarily unavailable.", code: "TTS_FAILED" }, { status: 502 });
     }
 
+    console.log(`[voice/interviewer-tts] servedVoice=${usedVoiceId} source=${source}`);
     return new NextResponse(attempt.res.body, {
       status: 200,
       headers: {
         "Content-Type": "audio/mpeg",
         "Cache-Control": "no-store",
-        // Observable in devtools for verification; contains only a voice ID, no secret.
-        "X-Interviewer-Voice": usedFallback ? FALLBACK_VOICE_ID : INTERVIEWER_VOICE_ID,
-        "X-Interviewer-Voice-Source": usedFallback ? "fallback" : "primary",
+        // Observability headers — voice IDs only, never secrets. The client
+        // chip and devtools both read these to verify the actual voice used.
+        "X-Interviewer-Voice-Id": usedVoiceId,
+        "X-Interviewer-Voice-Source": source,
+        "X-Interviewer-Voice": usedVoiceId, // legacy alias, same value
       },
     });
   } catch (err) {
